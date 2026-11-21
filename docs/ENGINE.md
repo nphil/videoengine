@@ -111,13 +111,16 @@ session.stop()
 - **Pacing.** For sources above `paceMinSourceBytes`, production runs up to
   `paceLeadSeconds` ahead of the playhead (twice that from 100 ms to the
   first byte, or with less than twice the media's rate to spare), then keeps
-  step with the playhead, one target duration ahead, instead of waiting for
-  it to catch up: AVPlayer stops loading the listed segments of a live
-  playlist that has not grown for 1.5 target durations, so a playlist held
-  still starves it. A playhead that moves back starts the step again from
-  there, and production runs on while `setPlayerWaiting(true)` says the
-  player waits for data. The remux thread runs at user-initiated until a
-  segment is listed and 8 s are ready, then at utility.
+  step with the playhead or the clock, whichever has moved further, one
+  target duration ahead, instead of waiting for the playhead to catch up:
+  AVPlayer stops loading the listed segments of a live playlist that has not
+  grown for 1.5 target durations, and fails a paused item about 45 s later
+  (-12888), so a playlist held still starves it. Paused, production goes on
+  at real time, at most the pause's length ahead. A playhead that moves back
+  starts the step again from there, and production runs on while
+  `setPlayerWaiting(true)` says the player waits for data. The remux thread
+  runs at user-initiated until a segment is listed and 8 s are ready, then at
+  utility.
 - `RemuxSession.sweepStaleFiles(in:prefixes:)` removes temp files a killed
   process left behind; call it at launch.
 

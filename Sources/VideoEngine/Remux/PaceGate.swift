@@ -5,19 +5,23 @@ import Foundation
 ///
 /// - While the player waits for data, production goes on: whatever the player waits for, more output is
 ///   what ends the wait.
-/// - Past the lead, production keeps step with the playhead instead of stopping until the playhead catches
-///   up. AVPlayer stops loading the segments of a live playlist that has not grown for 1.5 target
-///   durations, listed ones included: after the playhead moved back 100 s within a run, it played the 57 s
-///   it had loaded and then waited for good, while production waited for the playhead (field log,
-///   2026-11-08). Keeping step adds a segment for each one played, so the playlist grows while the picture
-///   moves; a move backwards starts the step again from the new position.
+/// - Past the lead, production keeps step with the playhead or the clock, whichever has moved further,
+///   instead of stopping until the playhead catches up. AVPlayer stops loading the segments of a live
+///   playlist that has not grown for 1.5 target durations, listed ones included: after the playhead moved
+///   back 100 s within a run, it played the 57 s it had loaded and then waited for good, while production
+///   waited for the playhead (field log, 2026-11-08). Paused, it fails the item instead: six reloads of an
+///   unchanged playlist, 46 to 50 s after the pause, ended a paused Picture in Picture with -12888 twice
+///   in one evening (field log, 2026-11-20). Keeping step with the clock adds a segment for each target
+///   duration that passes, so the playlist grows whether the picture moves or not; a move backwards starts
+///   the step again from the new position.
 struct PaceGate: Sendable {
     var lead: TimeInterval
     /// How far production may run past the step, one target duration, so the next segment is always under
     /// way.
     let headroom: TimeInterval
-    /// Playhead and production when the run went past the lead, or when the playhead last moved back.
-    private var mark: (playhead: TimeInterval, produced: TimeInterval)?
+    /// Playhead, production and the clock when the run went past the lead, or when the playhead last moved
+    /// back.
+    private var mark: (playhead: TimeInterval, produced: TimeInterval, at: TimeInterval)?
     private var lastPlayhead: TimeInterval = 0
 
     init(lead: TimeInterval, headroom: TimeInterval) {
@@ -25,16 +29,17 @@ struct PaceGate: Sendable {
         self.headroom = headroom
     }
 
-    mutating func allows(produced: TimeInterval, playhead: TimeInterval, playerWaiting: Bool) -> Bool {
+    /// - Parameter now: a monotonic clock, in seconds.
+    mutating func allows(produced: TimeInterval, playhead: TimeInterval, playerWaiting: Bool, now: TimeInterval) -> Bool {
         defer { lastPlayhead = playhead }
         if playerWaiting || produced - playhead <= lead {
             mark = nil
             return true
         }
         if let mark, playhead >= lastPlayhead {
-            return produced - mark.produced <= playhead - mark.playhead + headroom
+            return produced - mark.produced <= max(playhead - mark.playhead, now - mark.at) + headroom
         }
-        mark = (playhead: playhead, produced: produced)
+        mark = (playhead: playhead, produced: produced, at: now)
         return true
     }
 

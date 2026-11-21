@@ -782,13 +782,17 @@ struct Remuxer: Sendable {
                 mediaBytesPerSecond: mediaBytesPerSecond
             )
         }
-        guard !gate.allows(produced: videoSeconds, playhead: run.playhead, playerWaiting: run.playerWaiting) else { return }
+        func allows() -> Bool {
+            let now = Double(DispatchTime.now().uptimeNanoseconds) / 1e9
+            return gate.allows(produced: videoSeconds, playhead: run.playhead, playerWaiting: run.playerWaiting, now: now)
+        }
+        guard !allows() else { return }
         run.setPaced(true)
         defer { run.setPaced(false) }
         repeat {
             if run.control.isStopped { throw CancellationError() }
             Thread.sleep(forTimeInterval: 0.2)
-        } while !gate.allows(produced: videoSeconds, playhead: run.playhead, playerWaiting: run.playerWaiting)
+        } while !allows()
         run.control.extendDeadline(by: options.stallTimeout)
     }
 
