@@ -121,6 +121,10 @@ session.stop()
   `setPlayerWaiting(true)` says the player waits for data. The remux thread
   runs at user-initiated until a segment is listed and 8 s are ready, then at
   utility.
+- **Suspension.** iOS takes a suspended app's listening socket away, and the
+  loopback listener fails when the app runs again (a paused Picture in
+  Picture is suspended). `LoopbackServer` then listens on the same port again,
+  up to five attempts, so the URLs AVPlayer holds keep working.
 - `RemuxSession.sweepStaleFiles(in:prefixes:)` removes temp files a killed
   process left behind; call it at launch.
 

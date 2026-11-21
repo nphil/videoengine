@@ -86,4 +86,25 @@ struct LoopbackServerTests {
         #expect(try await RawHTTP.get(base, "/other").status == 404)
         #expect(server.recentRequests().count == 3)
     }
+
+    /// iOS takes a suspended app's listening socket away; the URL AVPlayer holds must answer again.
+    @Test func servesAgainOnTheSamePortAfterTheListenerIsLost() async throws {
+        let file = try GrowingFile(Self.bytes, available: 1000)
+        let server = LoopbackServer(routes: [file.route("/media.mp4")], waitTimeout: 0.1)
+        let base = try await server.start()
+        defer { server.stop() }
+        let first = try #require(server.currentListener)
+
+        server.lost(first)
+        // A connection to a port with no listener waits rather than fails, so the request waits for the new
+        // listener. Generous for a CI simulator that freezes the process for seconds.
+        let deadline = ContinuousClock.now + .seconds(30)
+        while ContinuousClock.now < deadline, server.currentListener.map({ $0 === first || $0.state != .ready }) ?? true {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let reply = try await RawHTTP.get(base, "/media.mp4", range: "bytes=0-99")
+
+        #expect(reply.status == 206)
+        #expect(reply.body == Self.bytes[0..<100])
+    }
 }

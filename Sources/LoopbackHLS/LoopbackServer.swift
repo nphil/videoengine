@@ -18,6 +18,10 @@ public enum LoopbackError: Error, Sendable, Equatable {
 public final class LoopbackServer: Sendable {
     private struct State {
         var listener: NWListener?
+        /// The port AVPlayer was given: a listener iOS takes away listens on it again (`lost(_:)`).
+        var port: NWEndpoint.Port?
+        /// Attempts in a row to listen again after a loss.
+        var relistens = 0
         var isStopped = false
         var log: [String] = []
     }
@@ -47,17 +51,30 @@ public final class LoopbackServer: Sendable {
 
     /// Starts listening and returns the base URL, `http://127.0.0.1:<port>`, once the listener is ready.
     public func start() async throws -> URL {
+        switch await listen(on: .any) {
+        case .success(let port):
+            return URL(string: "http://127.0.0.1:\(port.rawValue)")!
+        case .failure(let failure):
+            stop()
+            throw failure
+        }
+    }
+
+    /// Starts a listener on `port` and waits until it is ready: the port it listens on, or why it cannot.
+    private func listen(on port: NWEndpoint.Port) async -> Result<NWEndpoint.Port, LoopbackError> {
         // Loopback only: a wildcard bind would let any LAN peer fetch the media without auth.
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
-        let listener: NWListener
-        do {
-            listener = try NWListener(using: parameters)
-        } catch {
-            throw LoopbackError.bindFailed
-        }
+        parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: port)
+        // A lost listener's port is taken again while the connections it accepted may still linger.
+        parameters.allowLocalEndpointReuse = true
+        guard let listener = try? NWListener(using: parameters) else { return .failure(.bindFailed) }
         listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
-        state.withLockUnchecked { $0.listener = listener }
+        let current = state.withLockUnchecked { state -> Bool in
+            guard !state.isStopped else { return false }
+            state.listener = listener
+            return true
+        }
+        guard current else { return .failure(.bindFailed) }
         let listenerQueue = DispatchQueue(label: queue.label + ".listener", qos: .userInitiated)
         let failure: LoopbackError? = await withCheckedContinuation { continuation in
             let resumed = OSAllocatedUnfairLock(initialState: false)
@@ -68,10 +85,13 @@ public final class LoopbackServer: Sendable {
                 }
                 if first { continuation.resume(returning: failure) }
             }
-            listener.stateUpdateHandler = { state in
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
                 switch state {
                 case .ready: finish(nil)
-                case .failed, .cancelled: finish(.bindFailed)
+                case .failed:
+                    finish(.bindFailed)
+                    if let listener { self?.lost(listener) }
+                case .cancelled: finish(.bindFailed)
                 default: break
                 }
             }
@@ -79,11 +99,41 @@ public final class LoopbackServer: Sendable {
             // Nothing blocks on this, so the limit can outlast the 20 s freezes seen on simulator hosts.
             listenerQueue.asyncAfter(deadline: .now() + 30) { finish(.timedOut) }
         }
-        guard failure == nil, let port = listener.port?.rawValue else {
-            stop()
-            throw failure ?? LoopbackError.bindFailed
+        guard failure == nil, let bound = listener.port else {
+            listener.cancel()
+            return .failure(failure ?? .bindFailed)
         }
-        return URL(string: "http://127.0.0.1:\(port)")!
+        state.withLockUnchecked { state in
+            state.port = bound
+            state.relistens = 0
+        }
+        return .success(bound)
+    }
+
+    /// iOS takes a suspended app's listening socket away, and the listener fails once the app runs again
+    /// (Apple TN2277). AVPlayer keeps the port in its URLs: a Picture in Picture paused for 2.5 min then
+    /// played met "Could not connect to the server" three times and ended (Marquee, 2026-11-20). The server
+    /// listens on the same port again, a few times at most.
+    func lost(_ failed: NWListener) {
+        let retry = state.withLockUnchecked { state -> (port: NWEndpoint.Port, attempt: Int)? in
+            guard !state.isStopped, state.listener === failed, let port = state.port, state.relistens < 5 else { return nil }
+            state.relistens += 1
+            state.listener = nil
+            return (port, state.relistens)
+        }
+        failed.cancel()
+        guard let retry else { return }
+        record("listener lost, listening again on \(retry.port.rawValue) (attempt \(retry.attempt))")
+        Task { [weak self] in
+            if retry.attempt > 1 { try? await Task.sleep(for: .milliseconds(200)) }
+            // A failed attempt reports to `lost(_:)` itself.
+            _ = await self?.listen(on: retry.port)
+        }
+    }
+
+    /// The listener now, for tests that stand in for iOS taking it away.
+    var currentListener: NWListener? {
+        state.withLockUnchecked { $0.listener }
     }
 
     /// Stops listening and releases waiting requests. Idempotent.
