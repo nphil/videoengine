@@ -4,6 +4,8 @@ import os
 import Testing
 @testable import VideoEngine
 
+// Avoid starting a software decoder per test simultaneously on the simulator.
+@Suite(.serialized)
 struct FrameExtractorTests {
     /// The HEVC 10-bit fixture is 160x96 with keyframes at 0.007 s and 1.007 s, 2 s long.
     private static let hevc = "hevc10-opus-srt.mkv"
