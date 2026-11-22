@@ -7,8 +7,7 @@ public struct ExtractedFrame: @unchecked Sendable {
     /// The picture: 8 bits per channel, shrunk to fit the requested width and never enlarged.
     public let image: CGImage
     /// Where the picture sits in the video, in seconds from its start: the keyframe at or before the time asked
-    /// for. It is normally a little before the request, and after it only when the keyframe is shown later than
-    /// it is stored.
+    /// for, so never later than the request.
     public let actualSeconds: Double
     /// Bytes the source returned to the demuxer during this call. The first call also pays for opening the video.
     public let bytesRead: Int64
@@ -18,8 +17,10 @@ public struct ExtractedFrame: @unchecked Sendable {
 ///
 /// A call seeks to the keyframe at or before the time asked for and decodes just that picture. Nothing is decoded
 /// forward, so the picture can be up to one keyframe interval earlier than the request; `actualSeconds` says where
-/// it really is. The first call opens the video and the open demuxer and decoder are reused after that, so a scrub
-/// costs one keyframe per call.
+/// it really is and is never later than the request. A video with no keyframe that early (a time before its first
+/// picture), or whose picture has no timestamp, makes the call throw instead of returning a picture it cannot place.
+/// The first call opens the video and the open demuxer and decoder are reused after that, so a scrub costs one
+/// keyframe per call.
 ///
 /// Calls run one at a time, in order, on a queue of their own at `utility` priority. A call whose task is cancelled
 /// throws `CancellationError` at once and its unfinished work is dropped, queued or running. The source is never
@@ -48,7 +49,8 @@ public final class FrameExtractor: Sendable {
 
     /// The picture at the keyframe at or before `seconds` (movie time, clamped to 0 or later), shrunk so that it is
     /// at most `maxWidth` pixels wide (capped at 3840) and never enlarged. Throws `CancellationError` when the
-    /// calling task is cancelled.
+    /// calling task is cancelled, and a `VideoEngineError` when the video has no keyframe that early, or none that
+    /// decodes and carries a timestamp.
     public func frame(at seconds: Double, maxWidth: Int) async throws -> ExtractedFrame {
         try Task.checkCancellation()
         guard seconds.isFinite else { throw VideoEngineError.failure("frame time", FF.einval) }
@@ -232,11 +234,12 @@ private final class FrameWorker: @unchecked Sendable {
             let frame = try extract(job)
             job.finish(.success(frame))
         } catch {
-            let cancelled = job.isCancelled || control.isStopped
-            if !cancelled {
+            if job.isCancelled || control.isStopped {
+                job.finish(.failure(CancellationError()))
+            } else {
                 logger.event("frames-fail", [("source", metered.logName), ("error", String(describing: error))])
+                job.finish(.failure(error))
             }
-            job.finish(.failure(cancelled ? CancellationError() : error))
         }
     }
 

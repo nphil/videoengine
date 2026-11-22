@@ -177,10 +177,9 @@ server or a `RemuxSession`.
   holds:
   - `image: CGImage`: 8 bits per channel, shrunk to at most `maxWidth` pixels
     wide and never enlarged.
-  - `actualSeconds: Double`: where the picture sits in the video, seconds from
-    its start. Normally a little before the request (up to one keyframe
-    interval); after it only when the keyframe is shown later than it is
-    stored.
+  - `actualSeconds: Double`: the keyframe's time in seconds from the start,
+    never later than the request. If there is no timestamped keyframe that
+    early, the call throws rather than guessing a time.
   - `bytesRead: Int64`: bytes the source returned to the demuxer during this
     call; the first call also pays for opening the video. It is not network
     transfer: `HTTPRangeSource` read-ahead and its cache can fetch more or

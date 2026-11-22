@@ -5,12 +5,18 @@ import Libavformat
 import Libavutil
 
 extension VideoEngineError {
-    /// The video has no picture to decode at the requested time.
-    static let noFrame = VideoEngineError.ffmpeg(code: FF.invalidData, message: "no picture could be decoded")
+    /// The video has no picture at or before the requested time that can be shown: none is stored that early, none
+    /// decodes, or the one that does has no timestamp to report.
+    static let noFrame = VideoEngineError.ffmpeg(
+        code: FF.invalidData, message: "no picture at or before that time could be decoded"
+    )
 }
 
 /// An open video kept between calls: its demuxer, decoder and scaler. Used only from the worker queue.
 final class FrameSession {
+    /// How far a picture may sit past the requested time and still count as at it: floating-point rounding only.
+    private static let rounding = 1e-6
+
     /// The demuxer's input. The worker clears the error an interrupted call left on it before the next call.
     let input: DemuxInput
     private let streamIndex: Int
@@ -60,22 +66,30 @@ final class FrameSession {
         ])
     }
 
-    /// The picture at the keyframe at or before `seconds`, and the movie time it is shown at. Throws
+    /// The picture at the keyframe at or before `seconds`, and the movie time it is shown at, never later than
+    /// `seconds`. Throws `noFrame` when the video has no keyframe that early or gives the picture no timestamp, and
     /// `CancellationError` as soon as `job` is cancelled.
     func frame(at seconds: Double, maxWidth: Int, job: FrameJob) throws -> (image: CGImage, seconds: Double) {
         try job.checkCancelled()
         try seek(to: seconds)
         defer { av_packet_unref(packet.pointer) }
         try readKeyframe(job: job)
+        let picture = try decodePicture(maxWidth: maxWidth, job: job)
+        let shown = try shownSeconds(stamp: picture.stamp, notAfter: seconds)
+        return (picture.image, shown)
+    }
+
+    /// Decodes and renders the keyframe in `packet`. VideoToolbox goes first; when it declines the video or the
+    /// picture, the rest is software, for good.
+    private func decodePicture(maxWidth: Int, job: FrameJob) throws -> (image: CGImage, stamp: Int64) {
         do {
-            return try decodeAndRender(maxWidth: maxWidth, requested: seconds, job: job)
+            return try decodeAndRender(maxWidth: maxWidth, job: job)
         } catch {
-            // VideoToolbox declined this video or this picture: finish in software, and stay there.
             guard decoder.path == .videoToolbox, !job.isCancelled, !(error is CancellationError) else { throw error }
             logger.event("frames-fallback", [("error", String(describing: error))])
             try decoder.switchToSoftware()
             loggedPath = false
-            return try decodeAndRender(maxWidth: maxWidth, requested: seconds, job: job)
+            return try decodeAndRender(maxWidth: maxWidth, job: job)
         }
     }
 
@@ -113,9 +127,8 @@ final class FrameSession {
         }
     }
 
-    private func decodeAndRender(
-        maxWidth: Int, requested: Double, job: FrameJob
-    ) throws -> (image: CGImage, seconds: Double) {
+    /// The decoded keyframe as a picture, with the timestamp the video gave it.
+    private func decodeAndRender(maxWidth: Int, job: FrameJob) throws -> (image: CGImage, stamp: Int64) {
         try decoder.decode(packet.pointer, into: decoded.pointer)
         defer { av_frame_unref(decoded.pointer) }
         try job.checkCancelled()
@@ -125,16 +138,26 @@ final class FrameSession {
             logger.event("frames-decode", [("path", hardware ? "videotoolbox" : "software")])
         }
         let image = try renderer.image(from: decoded.pointer, maxWidth: maxWidth)
-        return (image, presentationSeconds(of: decoded.pointer, requested: requested))
+        return (image, timestamp(of: decoded.pointer))
     }
 
-    /// When the decoded picture is shown, in movie seconds; the request when the video gives no timestamp at all.
-    private func presentationSeconds(of frame: UnsafeMutablePointer<AVFrame>, requested: Double) -> Double {
+    /// The first timestamp the decoder or the demuxer gave the picture, in the stream's time base; `FF.noPTS` when it
+    /// has none.
+    private func timestamp(of frame: UnsafeMutablePointer<AVFrame>) -> Int64 {
         let stamps = [
             frame.pointee.best_effort_timestamp, frame.pointee.pts, packet.pointer.pointee.pts,
             packet.pointer.pointee.dts,
         ]
-        guard let ticks = stamps.first(where: { $0 != FF.noPTS }) else { return requested }
-        return max(0, Double(ticks) * av_q2d(stream.pointee.time_base) - startOffset)
+        return stamps.first { $0 != FF.noPTS } ?? FF.noPTS
+    }
+
+    /// The movie time of a timestamp, never a guess: a picture with no timestamp is an error, and so is one shown
+    /// after `limit`, which means the video has no keyframe that early. The seek aims at a whole tick at or below the
+    /// request, so only floating-point rounding is let through, and the result is held to `limit`.
+    private func shownSeconds(stamp: Int64, notAfter limit: Double) throws -> Double {
+        guard stamp != FF.noPTS else { throw VideoEngineError.noFrame }
+        let shown = max(0, Double(stamp) * av_q2d(stream.pointee.time_base) - startOffset)
+        guard shown <= limit + Self.rounding else { throw VideoEngineError.noFrame }
+        return min(shown, limit)
     }
 }

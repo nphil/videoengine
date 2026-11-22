@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Libavcodec
+import Libavformat
 import Libavutil
 import Libswscale
 
