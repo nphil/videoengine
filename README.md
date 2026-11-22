@@ -81,10 +81,15 @@ concurrency):
   interrupted run stopped.
 - `HardwareDecodeProbe` and `HardwareCapabilities` (v2.0.0+) report hardware
   decode support, HDR eligibility of the display, and heat and power state.
+- `FrameExtractor` (v2.1.0+, additive) returns a still frame at a time
+  (`await frame(at:maxWidth:)` returns an `ExtractedFrame` with `image`,
+  `actualSeconds`, `bytesRead`) for
+  scrub thumbnails, reading through its own `ByteRangeSource` independent of
+  playback and cancellable by task cancellation.
 - Logging goes through an `EngineLogger` the app supplies.
 
 The full API, adoption steps and device test sheets are in
-[docs/ENGINE.md](docs/ENGINE.md). A public API change is a major version, so
+[docs/ENGINE.md](docs/ENGINE.md). A breaking public API change is a major version and additive ones are minor, so
 apps pin an exact version.
 
 ## Consuming from an app
@@ -93,7 +98,7 @@ Add this repo as a Swift Package dependency (the `FFmpeg` product pulls in all
 six binary targets plus the required system frameworks):
 
 ```swift
-.package(url: "https://github.com/nphil/videoengine.git", exact: "2.0.0")
+.package(url: "https://github.com/nphil/videoengine.git", exact: "2.1.0")
 ```
 
 ```swift

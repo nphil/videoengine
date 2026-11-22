@@ -316,7 +316,7 @@ struct Remuxer: Sendable {
     }
 
     /// The first video stream that is not cover art or a Dolby Vision enhancement layer on its own, or -1.
-    private static func videoStream(of format: UnsafeMutablePointer<AVFormatContext>) -> Int {
+    static func videoStream(of format: UnsafeMutablePointer<AVFormatContext>) -> Int {
         for i in 0..<Int(format.pointee.nb_streams) {
             guard let stream = format.pointee.streams[i], let parameters = stream.pointee.codecpar else { continue }
             if parameters.pointee.codec_type == AVMEDIA_TYPE_VIDEO,

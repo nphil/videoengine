@@ -10,7 +10,7 @@ concurrency, iOS 26 and later:
   facts and diagnostics. Depends on `LoopbackHLS` and the FFmpeg binaries.
 
 The `FFmpeg` product (the raw `Libav*` modules) is unchanged. Apps pin the
-package with `exactVersion`, because any public API change is a major version.
+package with `exactVersion`, because any breaking public API change is a major version; additive changes are a minor version (2.1.0 adds `FrameExtractor`).
 
 Threading: every public type is `Sendable`. Each FFmpeg run owns one dedicated
 thread; state shared with callers sits behind `OSAllocatedUnfairLock`. Nothing
@@ -153,6 +153,100 @@ and report through `TranscodeObserver`.
   engine has no UIKit dependency. `snapshot()` at launch and at each playback
   start; `changes()` yields on heat, power and HDR eligibility changes.
   `FixedHardwareCapabilityProvider` serves tests and previews.
+
+### Frame extraction (v2.1.0+)
+
+`FrameExtractor` returns one still picture from a video, for scrub thumbnails
+and previews. It reads through a `ByteRangeSource`, never through the player,
+so it needs no playback session and does not touch `AVPlayer`, the loopback
+server or a `RemuxSession`.
+
+- `FrameExtractor(source: any ByteRangeSource, logger: EngineLogger = .silent)`:
+  nothing is read until the first call. Keep one extractor per video while
+  thumbnails are needed: the first call opens the video, and the open demuxer
+  and decoder are reused, so a scrub costs one keyframe per call. Give it its
+  own source, made with `ByteRangeSources.make(for:headers:readAheadBytes:)`
+  for the same URL and headers as playback, never playback's source object.
+  Separate sources share no connection or cache, but over a network they
+  still share the link's bandwidth. The extractor never calls the source's
+  `cancel()` (which is permanent); the source's owner does, to end a call stuck
+  in a dead network read.
+- `func frame(at seconds: Double, maxWidth: Int) async throws -> ExtractedFrame`
+  seeks to the keyframe at or before `seconds` (clamped to 0 or later) and
+  decodes only that picture; nothing is decoded forward. `ExtractedFrame`
+  holds:
+  - `image: CGImage`: 8 bits per channel, shrunk to at most `maxWidth` pixels
+    wide and never enlarged.
+  - `actualSeconds: Double`: where the picture sits in the video, seconds from
+    its start. Normally a little before the request (up to one keyframe
+    interval); after it only when the keyframe is shown later than it is
+    stored.
+  - `bytesRead: Int64`: bytes the source returned to the demuxer during this
+    call; the first call also pays for opening the video. It is not network
+    transfer: `HTTPRangeSource` read-ahead and its cache can fetch more or
+    fewer bytes.
+- Calls run one at a time, in order, on a `utility`-priority queue of the
+  extractor's own.
+- Cancellation: a cancelled task gets `CancellationError` at once; queued or
+  running work for it is dropped, and the read in progress is failed so FFmpeg
+  stops. The open video stays open for the next call. A call stuck inside the
+  source's own read holds the queue until that read returns.
+- Decoding uses VideoToolbox when the device and codec allow it, otherwise
+  FFmpeg's decoders (libdav1d for AV1); the Simulator always uses FFmpeg. The
+  video's own colour matrix, pixel aspect ratio and 90-degree rotation are
+  applied. HDR is not tone mapped: HDR10 and HLG pictures come out as plain
+  SDR (flat but recognisable), and Dolby Vision profile 5 colours are not
+  corrected.
+- Limits, whatever the caller asks for: at most 3840 pixels wide and
+  3840 x 2160 in all (larger `maxWidth` is capped); videos with pictures
+  larger than 8192 x 4608 are refused; a call making no progress for 30 s
+  throws `VideoEngineError.timedOut` (outage time the source reports does not
+  count); a keyframe must turn up within 64 MiB of reading after the seek.
+  A non-finite `seconds` or `maxWidth <= 0` throws a `VideoEngineError`.
+- Other failures are `VideoEngineError`, as elsewhere in the engine.
+
+Example: a scrubber that keeps only the newest request.
+
+```swift
+import CoreGraphics
+import Foundation
+import VideoEngine
+
+@MainActor
+final class ScrubThumbnails {
+    private let extractor: FrameExtractor
+    private var pending: Task<Void, Never>?
+    private(set) var image: CGImage?
+
+    init(url: URL, headers: [String: String]) throws {
+        // A distinct source (same URL and headers), never playback's object.
+        let source = try ByteRangeSources.make(for: url, headers: headers)
+        extractor = FrameExtractor(source: source)
+    }
+
+    /// Call on every scrub change. The previous request is cancelled.
+    func scrub(to seconds: Double) {
+        pending?.cancel()
+        let extractor = extractor
+        pending = Task { [weak self] in
+            do {
+                let result = try await extractor.frame(at: seconds, maxWidth: 320)
+                guard !Task.isCancelled else { return }
+                self?.image = result.image
+                // result.actualSeconds: where the frame really is
+                // result.bytesRead: IO cost of this thumbnail
+            } catch is CancellationError {
+                // superseded by a newer scrub position
+            } catch {
+                // keep the last image; log if wanted
+            }
+        }
+    }
+}
+```
+
+This is additive in 2.1.0: no existing type, signature or behaviour changed,
+so apps on 2.0.0 move to 2.1.0 by changing the pinned version only.
 
 ### Diagnostics
 

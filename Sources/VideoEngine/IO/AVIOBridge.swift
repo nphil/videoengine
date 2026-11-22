@@ -115,6 +115,13 @@ final class DemuxInput {
         return code < 0 ? Self.failure(code: code, input: input, opening: false) : nil
     }
 
+    /// Forgets the error an interrupted operation left behind, so an input kept for later calls starts its
+    /// next operation, a seek, clean.
+    func clearError() {
+        opaque.takeUnretainedValue().error = nil
+        avio.pointee.error = 0
+    }
+
     func close() {
         guard isOpen else { return }
         isOpen = false

@@ -190,7 +190,7 @@ final class VideoReencoder {
 }
 
 /// get_format callback: the VideoToolbox surface format when the decoder offers it, else FFmpeg's default.
-private func preferVideoToolbox(
+func preferVideoToolbox(
     _ context: UnsafeMutablePointer<AVCodecContext>?, _ formats: UnsafePointer<AVPixelFormat>?
 ) -> AVPixelFormat {
     guard var format = formats else { return AV_PIX_FMT_NONE }

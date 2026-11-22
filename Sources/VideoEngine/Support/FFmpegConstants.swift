@@ -7,6 +7,8 @@ enum FF {
     static let averrorEOF: Int32 = -541_478_725
     /// AVERROR_EXIT, -MKTAG('E','X','I','T'): the interrupt callback asked FFmpeg to stop.
     static let averrorExit: Int32 = -1_414_092_869
+    /// AVERROR_INVALIDDATA, -MKTAG('I','N','D','A'): the data cannot be decoded.
+    static let invalidData: Int32 = -1_094_995_529
     /// AVERROR(errno) values with Darwin errno numbers.
     static let eagain: Int32 = -35
     static let eio: Int32 = -5
@@ -21,9 +23,15 @@ enum FF {
     static let avfmtFlagCustomIO: Int32 = 0x0080
     static let avfmtGlobalHeader: Int32 = 0x0040
     static let codecFlagGlobalHeader: Int32 = 1 << 22
+    /// AV_CODEC_FLAG_LOW_DELAY, which also keeps a decoder off frame threading.
+    static let codecFlagLowDelay: Int32 = 1 << 19
+    /// FF_THREAD_SLICE.
+    static let threadSlice: Int32 = 2
     static let avioFlagWrite: Int32 = 2
     static let noPTS: Int64 = .min
     static let swsBilinear: Int32 = 2
+    /// SWS_AREA: area averaging, the clean filter for shrinking.
+    static let swsArea: Int32 = 1 << 5
     static let packetFlagKey: Int32 = 1
     static let indexKeyframe: Int32 = 1
 
