@@ -11,6 +11,22 @@ private func hasMetal() -> Bool { MTLCreateSystemDefaultDevice() != nil }
 
 private let needsMetal: Comment = "needs a Metal device; a simulator without one skips these, and the device sheet (ENGINE.md, E1-E8) covers the pipeline then"
 
+private let needsSharing: Comment = "needs a GPU that reads pixel buffers without a copy; a virtual one may refuse, and the device sheet (ENGINE.md, E1-E8) covers the pipeline then"
+
+/// The chain gives Metal the player's pixel buffers and its own pooled ones without a copy. A virtual GPU may refuse
+/// that, and then the chain tests have nothing to say about the engine, so they skip.
+private func canShareBuffers() -> Bool {
+    guard let gpu = try? EnhanceGPU(), let video = makeBuffer(width: 64, height: 64) else { return false }
+    let luma = EnhanceTextures.wrap(video, plane: 0, format: .r8Unorm, cache: gpu.cache, usage: .shaderRead)
+    let chroma = EnhanceTextures.wrap(video, plane: 1, format: .rg8Unorm, cache: gpu.cache, usage: .shaderRead)
+    let pool = PooledSurfaces(
+        size: PixelSize(width: 64, height: 64), usage: [.shaderRead, .shaderWrite], minimum: 1, ceiling: 2, cache: gpu.cache
+    )
+    return luma != nil && chroma != nil && pool?.next() != nil
+}
+
+private let buffersShare = hasMetal() && canShareBuffers()
+
 /// A flat grey frame of `format`, as the player would hand it over: Metal can read it.
 private func makeBuffer(width: Int, height: Int, format: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) -> CVPixelBuffer? {
     let attributes: [String: Any] = [
@@ -189,7 +205,7 @@ struct PictureEnhancerTests {
         enhancer.detach()
     }
 
-    @Test(.enabled(if: hasMetal(), needsMetal))
+    @Test(.enabled(if: buffersShare, needsSharing))
     func framesComeOutScaledSharpenedAndDebanded() async throws {
         let buffer = try #require(makeBuffer(width: 640, height: 360))
         let logs = LogLines()
@@ -216,7 +232,7 @@ struct PictureEnhancerTests {
         enhancer.detach()
     }
 
-    @Test(.enabled(if: hasMetal(), needsMetal))
+    @Test(.enabled(if: buffersShare, needsSharing))
     func sharpenAndDebandRunWithoutAScaler() async throws {
         let buffer = try #require(makeBuffer(width: 640, height: 360))
         let logs = LogLines()

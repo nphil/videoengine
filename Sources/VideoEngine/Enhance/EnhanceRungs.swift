@@ -2,8 +2,14 @@ import CoreMedia
 import CoreVideo
 import Foundation
 @preconcurrency import Metal
+// The iOS simulator's SDK has no MetalFX module and declares none of VideoToolbox's frame processors, so the two Apple
+// scalers are compiled for devices only; there the simulator reports them as unavailable and the ladder moves on.
+#if canImport(MetalFX)
 @preconcurrency import MetalFX
+#endif
+#if !targetEnvironment(simulator)
 @preconcurrency import VideoToolbox
+#endif
 
 /// What a scaler is given for one frame.
 struct RungFrame {
@@ -44,9 +50,24 @@ enum EnhanceRungs {
         switch request.kind {
         case .lanczos: return try LanczosRung(request, steepen: false)
         case .lineArt: return try LanczosRung(request, steepen: true)
-        case .metalFXSpatial: return try MetalFXRung(request)
-        case .videoToolboxLowLatency: return try VideoToolboxRung.lowLatency(request)
-        case .videoToolboxSuperResolution: return try VideoToolboxRung.quality(request)
+        case .metalFXSpatial:
+            #if canImport(MetalFX)
+            return try MetalFXRung(request)
+            #else
+            throw EnhanceFailure("this SDK has no MetalFX")
+            #endif
+        case .videoToolboxLowLatency:
+            #if targetEnvironment(simulator)
+            throw EnhanceFailure("the simulator has no VideoToolbox frame processor")
+            #else
+            return try VideoToolboxRung.lowLatency(request)
+            #endif
+        case .videoToolboxSuperResolution:
+            #if targetEnvironment(simulator)
+            throw EnhanceFailure("the simulator has no VideoToolbox frame processor")
+            #else
+            return try VideoToolboxRung.quality(request)
+            #endif
         }
     }
 
@@ -117,6 +138,7 @@ final class LanczosRung: ScalerRung, @unchecked Sendable {
     }
 }
 
+#if canImport(MetalFX)
 /// MetalFX's spatial scaler.
 final class MetalFXRung: ScalerRung, @unchecked Sendable {
     let kind = EnhanceUpscalerKind.metalFXSpatial
@@ -166,7 +188,9 @@ final class MetalFXRung: ScalerRung, @unchecked Sendable {
         scaler.encode(commandBuffer: commands)
     }
 }
+#endif
 
+#if !targetEnvironment(simulator)
 /// VideoToolbox's machine-learning super resolution, in its quality and its low-latency form. Both read and write
 /// BGRA pixel buffers from pools whose attributes the scaler itself dictates.
 final class VideoToolboxRung: ScalerRung, @unchecked Sendable {
@@ -311,3 +335,4 @@ final class VideoToolboxRung: ScalerRung, @unchecked Sendable {
         }
     }
 }
+#endif

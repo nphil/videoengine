@@ -424,8 +424,11 @@ code taken.
 Opt-in, real-time picture improvement for SDR video, run on the device's GPU while the video plays: a scaler, a
 contrast-adaptive sharpen and a deband, each optional and changeable while playing. Every stage is off by default.
 Design informed by AetherEngine's documented upscaling feature; no code taken. Each Apple API named here was checked
-against Apple's iOS 27 documentation. CI builds the pipeline and tests the kernels and the bookkeeping; nothing has
-run on a device yet, so the device sheet below is open.
+against Apple's iOS 27 documentation. CI compiles the package for the simulator and for a device and tests the
+kernels, the planner and the chain on the simulator. The simulator's SDK has no MetalFX and none of VideoToolbox's
+frame processors, so those two scalers are compiled into device builds only (the simulator's ladder is the engine's
+own scalers) and only the device build compiles them. Nothing has run on a device yet, so the device sheet below is
+open.
 
 API (`PictureEnhancer` is `@MainActor`):
 
