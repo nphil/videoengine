@@ -86,6 +86,14 @@ concurrency):
   `actualSeconds`, `bytesRead`) for
   scrub thumbnails, reading through its own `ByteRangeSource` independent of
   playback and cancellable by task cancellation.
+- `EnginePrewarm` (v2.2.0+, additive) fetches the opening bytes of a remote
+  file ahead of time; the next `HTTPRangeSource` for the same URL and headers
+  reads its head and length from memory without a request. Design after
+  AetherEngine's documented feature; no code taken.
+- `EngineTLS.serverTrustEvaluator` (v2.2.0+, additive) lets an app trust HTTPS
+  media servers with a self-signed or private-CA certificate; `nil` keeps the
+  system's decision. Design after AetherEngine's documented feature; no code
+  taken.
 - Logging goes through an `EngineLogger` the app supplies.
 
 The full API, adoption steps and device test sheets are in

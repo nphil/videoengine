@@ -247,6 +247,55 @@ final class ScrubThumbnails {
 This is additive in 2.1.0: no existing type, signature or behaviour changed,
 so apps on 2.0.0 move to 2.1.0 by changing the pinned version only.
 
+### Prewarm (v2.2.0+)
+
+`EnginePrewarm.prewarm(url:headers:byteBudget:)` fetches the opening bytes of
+a remote file ahead of time, so the source made for it later opens without a
+network round trip. Call it when a title is highlighted or about to start.
+Design after AetherEngine's documented feature; no code taken.
+
+- `await EnginePrewarm.prewarm(url:headers:byteBudget:)` (budget default
+  2 MiB, at most `EnginePrewarm.maximumByteBudget`, 16 MiB) sends one `Range`
+  request for the head of an `http(s)` file and holds the bytes in memory.
+  It returns true when bytes are held afterwards, false for other schemes, a
+  refused or failed request, or a cancelled task, which leave nothing behind.
+  A prewarm that is still valid is not fetched again.
+- The key is the URL plus the headers exactly as sent (header names are not
+  case-sensitive, values are), so a token in a header that differs, or is
+  missing, does not match.
+- The first `HTTPRangeSource` made for the same URL and headers adopts the
+  bytes when it is created: its length (unless `knownLength` is given) and
+  every read inside them need no request, including re-reads of the head
+  after the tail. Reads past them are requested as usual. Nothing in
+  `HTTPRangeSource`'s signature or behaviour changes, and sources made by
+  `ByteRangeSources.make`, `MediaProbe`, `RemuxSession` and `FrameExtractor`
+  adopt the same way.
+- Held bytes are dropped when a source takes them, after three minutes and
+  when the system reports memory pressure; at most eight files are held.
+  `EnginePrewarm.discardAll()` drops them at once (when leaving a screen).
+- One source takes the bytes: a probe made first for the same URL and headers
+  uses them up, so prewarm again before the source that matters, or let the
+  probe be that source.
+
+### Certificate trust (v2.2.0+)
+
+`EngineTLS.serverTrustEvaluator` lets an app accept an HTTPS media server the
+system does not trust: a self-signed certificate or one from a private
+certificate authority. Design after AetherEngine's documented feature; no
+code taken.
+
+- `EngineTLS.serverTrustEvaluator: (@Sendable (_ host: String, _ trust: SecTrust) -> Bool)?`,
+  `nil` by default, which leaves every decision to the system as before.
+- When set, the engine's HTTP sessions (shared by `HTTPRangeSource` and
+  `EnginePrewarm`) ask it on each server-trust challenge. `true` accepts the
+  connection, `false` ends it. Other challenges are untouched.
+- The system's verdict is not applied before the hook, so a hook that always
+  returns `true` turns certificate checking off for every host. Accept only
+  what the user approved: compare `host` and the leaf certificate (for
+  example its SHA-256 fingerprint, saved when the user first accepted it)
+  and call `SecTrustEvaluateWithError(trust, nil)` for every other host.
+- It is a process-wide setting; set it before the first request.
+
 ### Diagnostics
 
 - `EngineLogger` carries engine events to the app's log; `.silent` drops them.

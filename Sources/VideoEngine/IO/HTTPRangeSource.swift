@@ -19,6 +19,9 @@ import os
 /// until `retryWindow` has passed since the first failure. A change of network (Wi-Fi to cellular, a VPN
 /// coming up) ends the requests in flight at once, since a connection on the old path can hang without
 /// failing until `requestTimeout`.
+///
+/// When `EnginePrewarm.prewarm` has fetched the opening bytes of the same URL and headers, a new source
+/// takes them over: its first reads and its length need no request.
 public final class HTTPRangeSource: ByteRangeSource {
     /// Size of the request that starts a run.
     static let firstRequestBytes = 512 << 10
@@ -82,8 +85,13 @@ public final class HTTPRangeSource: ByteRangeSource {
         self.retryWindow = max(0, retryWindow)
         self.transport = configuration.map { HTTPTransport(configuration: $0) } ?? .shared
         self.logName = (url.host() ?? "") + "/" + url.lastPathComponent
-        if let knownLength {
-            state.withLockUnchecked { s in
+        let adopted = PrewarmCache.shared.take(PrewarmCache.Key(url: url, headers: headers))
+        state.withLockUnchecked { s in
+            if let adopted {
+                s.entries = [Entry(fetch: RangeFetch(prefilled: adopted.bytes, total: adopted.total), used: true)]
+                s.size = adopted.total
+            }
+            if let knownLength {
                 s.size = knownLength
                 s.sizeQueried = true
             }
@@ -245,11 +253,17 @@ public final class HTTPRangeSource: ByteRangeSource {
     }
 
     private func begin(_ fetch: RangeFetch) {
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: requestTimeout)
-        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-        request.setValue("bytes=\(fetch.start)-\(fetch.start + Int64(fetch.limit) - 1)", forHTTPHeaderField: "Range")
+        let request = Self.request(url: url, headers: headers, start: fetch.start, limit: fetch.limit, timeout: requestTimeout)
         meter.began()
         fetch.attach(transport.start(request, for: fetch))
+    }
+
+    /// The `Range` request for `limit` bytes from `start`.
+    static func request(url: URL, headers: [String: String], start: Int64, limit: Int, timeout: TimeInterval) -> URLRequest {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        request.setValue("bytes=\(start)-\(start + Int64(limit) - 1)", forHTTPHeaderField: "Range")
+        return request
     }
 
     private static func clamp(_ length: Int, at offset: Int64, size: Int64?) -> Int {
@@ -436,6 +450,19 @@ final class RangeFetch: Sendable {
         self.meter = meter
         requested = meter.now()
     }
+
+    /// A finished request that already holds `body`, the opening bytes of a resource.
+    init(prefilled body: Data, total: Int64?) {
+        start = 0
+        limit = body.count
+        let meter = TransferMeter()
+        self.meter = meter
+        requested = meter.now()
+        state = OSAllocatedUnfairLock(initialState: State(verdict: .accepted(total: total), body: body, finished: true))
+    }
+
+    /// The bytes that have arrived.
+    var bytes: Data { state.withLock { $0.body } }
 
     var received: Int { state.withLock { $0.body.count } }
 
@@ -673,5 +700,14 @@ private final class TaskRouter: NSObject, URLSessionDataDelegate, Sendable {
         let taskID = task.taskIdentifier
         guard let fetch = fetches.withLock({ $0.removeValue(forKey: taskID) }) else { return }
         fetch.complete(response: task.response, error: error)
+    }
+
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
+        -> (URLSession.AuthChallengeDisposition, URLCredential?)
+    {
+        EngineTLS.resolve(
+            method: challenge.protectionSpace.authenticationMethod, host: challenge.protectionSpace.host,
+            trust: challenge.protectionSpace.serverTrust, evaluator: EngineTLS.serverTrustEvaluator
+        )
     }
 }
