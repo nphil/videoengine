@@ -65,12 +65,12 @@ private final class LogLines: @unchecked Sendable {
     }
 }
 
-/// Feeds the enhancer one frame every 33 ms, the way the display link would, until it has shown `wanted` of them.
+/// Feeds the enhancer one frame every 33 ms, the way the display link would, until `done` says it has seen enough.
 @MainActor
-private func pump(_ enhancer: PictureEnhancer, frame: CVPixelBuffer, shown wanted: Int) async throws {
+private func pump(_ enhancer: PictureEnhancer, frame: CVPixelBuffer, until done: () -> Bool) async throws {
     let started = ContinuousClock.now
     var index: Int64 = 0
-    while enhancer.statistics.shown < wanted, ContinuousClock.now - started < .seconds(30) {
+    while !done(), ContinuousClock.now - started < .seconds(30) {
         let now = CACurrentMediaTime()
         let pulled = PulledFrame(readOnly: nil, buffer: frame, time: CMTime(value: index, timescale: 30))
         enhancer.handle(pulled, tickTime: now, deadline: now + 10)
@@ -196,7 +196,13 @@ struct PictureEnhancerTests {
         let enhancer = PictureEnhancer(options: EnhanceOptions(upscaler: .lineArt, sharpen: 0.5, deband: 0.5), logger: logs.logger)
         enhancer.displaySize = CGSize(width: 1280, height: 720)
         enhancer.attach(to: dummyItem())
-        try await pump(enhancer, frame: buffer, shown: 3)
+        // The scaler is set up while frames already flow, so wait for the scaled picture, then for three frames of it.
+        var baseline: Int?
+        try await pump(enhancer, frame: buffer) {
+            guard case .running(let plan) = enhancer.state, plan.outputWidth > 640 else { return false }
+            if baseline == nil { baseline = enhancer.statistics.shown }
+            return enhancer.statistics.shown >= (baseline ?? 0) + 3
+        }
         let report = "\(enhancer.statistics) \(enhancer.state)\n\(logs.text)"
         #expect(enhancer.statistics.shown >= 3, Comment(rawValue: report))
         if case .running(let plan) = enhancer.state {
@@ -217,7 +223,7 @@ struct PictureEnhancerTests {
         let enhancer = PictureEnhancer(options: EnhanceOptions(upscaler: .off, sharpen: 0.5, deband: 0.5), logger: logs.logger)
         enhancer.displaySize = CGSize(width: 1280, height: 720)
         enhancer.attach(to: dummyItem())
-        try await pump(enhancer, frame: buffer, shown: 3)
+        try await pump(enhancer, frame: buffer) { enhancer.statistics.shown >= 3 }
         let report = "\(enhancer.statistics) \(enhancer.state)\n\(logs.text)"
         #expect(enhancer.statistics.shown >= 3, Comment(rawValue: report))
         if case .running(let plan) = enhancer.state {

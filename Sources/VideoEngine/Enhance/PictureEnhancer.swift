@@ -296,6 +296,7 @@ public final class PictureEnhancer {
         item = nil
         resetSource()
         hideOutput()
+        if let gpu { CVMetalTextureCacheFlush(gpu.cache, 0) }
         state = .idle
     }
 
@@ -337,7 +338,10 @@ public final class PictureEnhancer {
             shedPower: power().shouldShedOptionalWork, overloaded: governor.isPaused, statuses: statuses,
             ceiling: governor.ceiling
         )
-        let decision = EnhanceMath.decide(context)
+        var decision = EnhanceMath.decide(context)
+        // Until the GPU is set up the plain picture shows and the player's frames are left alone: frames that cannot be
+        // drawn yet must not count against the chain.
+        if case .run = decision, gpuStatus != .ready { decision = .idle }
         var running = false
         switch decision {
         case .idle: state = .idle
@@ -454,11 +458,11 @@ public final class PictureEnhancer {
 
     private func addOutput() {
         guard output == nil, let item else { return }
-        let attributes = CVPixelBufferAttributes(rawAttributes: [
+        let attributes: [String: any Sendable] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             kCVPixelBufferMetalCompatibilityKey as String: true,
             kCVPixelBufferIOSurfacePropertiesKey as String: [String: any Sendable](),
-        ])
+        ]
         let made = AVPlayerItemVideoOutput(pixelBufferAttributes: attributes)
         item.add(made)
         output = made
@@ -531,12 +535,13 @@ public final class PictureEnhancer {
     }
 
     private func render(_ frame: PulledFrame, facts: FrameFacts, plan: EnhancePlan, deadline: CFTimeInterval) {
+        guard let gpu else { return }
         statistics.offered += 1
         sequence += 1
         let ladder = EnhanceLadder.rungs(for: options.upscaler)
         var rank: Int?
         if let kind = plan.upscaler { rank = ladder.firstIndex(of: kind) }
-        guard let gpu, inFlight < Self.maxInFlight else {
+        guard inFlight < Self.maxInFlight else {
             skipFrame(rank: rank)
             return
         }
@@ -629,6 +634,8 @@ public final class PictureEnhancer {
             plain = PrivateSurfaces(device: gpu.device, size: source)
             if plain == nil { return nil }
         }
+        // Textures of buffers nobody holds any more are let go; the ones in flight stay valid.
+        CVMetalTextureCacheFlush(gpu.cache, 0)
         let made = Chain(key: key, display: display, plain: plain)
         chain = made
         return made
