@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VideoEngine sample</string>
+    <string name="play">Play</string>
+    <string name="check">Check probe against manifest</string>
+    <string name="copy">Copy device report</string>
+    <string name="report_copied">Device report copied (%1$d characters) and saved to %2$s</string>
+</resources>

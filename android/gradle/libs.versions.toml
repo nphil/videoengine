@@ -1,0 +1,28 @@
+[versions]
+# AGP 9 compiles Kotlin itself; the Kotlin plugin is declared at the root only to pin the compiler version.
+agp = "9.5.2"
+kotlin = "2.4.21"
+# Pinned exactly (docs/PLATFORMS.md D4): the inspector, effects and preload modules are @UnstableApi, so a
+# Media3 bump is a reviewed change, never a range.
+media3 = "1.11.1"
+coroutines = "1.10.2"
+annotation = "1.10.0"
+junit = "4.13.2"
+# The JVM unit tests need the org.json classes that the Android platform supplies on a device.
+orgJson = "20260814"
+
+[libraries]
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "annotation" }
+androidx-media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
+androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+androidx-media3-inspector = { group = "androidx.media3", name = "media3-inspector", version.ref = "media3" }
+androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
