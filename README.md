@@ -101,6 +101,14 @@ concurrency):
   Dolby Vision profile 7 as single-layer 8.1 instead of stripping it to HDR10:
   enhancement layer dropped, RPUs rewritten, `dvh1.08.xx` supplemental codecs.
   Design after AetherEngine's documented feature; no code taken.
+- `AudioPolicy.surroundCodec` (v2.2.0+, additive, off by default) re-encodes
+  surround the engine cannot copy (TrueHD, DTS and the like) to E-AC-3 5.1
+  at 640 kbit/s instead of AAC; design after AetherEngine's documented
+  feature, no code taken.
+- `AudioPolicy.shaping` (v2.2.0+, additive, off by default) sets an audio delay
+  of up to 2 s either way, a dialogue lift and a night mode on re-encoded
+  audio; choosing any of it forces a re-encode. Design after AetherEngine's
+  documented feature; no code taken.
 - Logging goes through an `EngineLogger` the app supplies.
 
 The full API, adoption steps and device test sheets are in

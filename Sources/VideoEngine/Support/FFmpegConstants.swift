@@ -25,6 +25,8 @@ enum FF {
     static let codecFlagGlobalHeader: Int32 = 1 << 22
     /// AV_CODEC_FLAG_LOW_DELAY, which also keeps a decoder off frame threading.
     static let codecFlagLowDelay: Int32 = 1 << 19
+    /// FF_COMPLIANCE_EXPERIMENTAL: lets an encoder FFmpeg marks experimental open.
+    static let complianceExperimental: Int32 = -2
     /// FF_THREAD_SLICE.
     static let threadSlice: Int32 = 2
     static let avioFlagWrite: Int32 = 2

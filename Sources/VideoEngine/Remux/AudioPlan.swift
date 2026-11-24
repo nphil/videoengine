@@ -4,7 +4,8 @@ import Foundation
 public struct AudioPolicy: Sendable, Equatable {
     /// Stream index of the audio the viewer picked. Nil takes the stream flagged default, else the first.
     public var preferredIndex: Int?
-    /// Codecs copied when their gate passes; everything else is re-encoded to AAC.
+    /// Codecs copied when their gate passes; everything else is re-encoded to AAC (or E-AC-3 5.1, see
+    /// `surroundCodec`).
     public var copyable: Set<String>
     /// AAC bit rate for re-encoded mono and stereo.
     public var stereoBitRate: Int
@@ -13,6 +14,21 @@ public struct AudioPolicy: Sendable, Equatable {
     /// E-AC-3 with more than six channels keeps its 5.1 core: the MP4 muxer cannot describe a 7.1
     /// dependent substream or a second independent one.
     public var eac3Core: Bool
+    /// What re-encoded audio above two channels becomes (v2.2.0+). The default is AAC; `.eac3` makes it
+    /// E-AC-3 5.1 at `eac3BitRate`. Stereo and mono stay AAC. The retry after a copy that broke the muxer
+    /// is always AAC.
+    public var surroundCodec: SurroundCodec = .aac
+    /// E-AC-3 bit rate for re-encoded 5.1 when `surroundCodec` is `.eac3` (v2.2.0+).
+    public var eac3BitRate: Int = 640_000
+    /// Delay, dialogue lift and night mode (v2.2.0+). Shaping runs only on re-encoded audio, so setting any
+    /// of it re-encodes a stream that would have been copied.
+    public var shaping = AudioShaping()
+
+    /// The codec of re-encoded surround audio (v2.2.0+).
+    public enum SurroundCodec: Sendable, Equatable {
+        case aac
+        case eac3
+    }
 
     public init(preferredIndex: Int? = nil, copyable: Set<String> = AudioPolicy.provenCopyable,
                 stereoBitRate: Int = 192_000, surroundBitRate: Int = 384_000, eac3Core: Bool = true) {
@@ -48,12 +64,19 @@ struct AudioPlan: Equatable {
         case copy
         /// The `eac3_core` filter keeps the first independent substream: 5.1 at most.
         case copyCore
-        case reencode(channels: Int, bitRate: Int)
+        case reencode(channels: Int, bitRate: Int, encoding: Encoding = .aac)
+    }
+
+    enum Encoding: Equatable {
+        case aac
+        case eac3
     }
 
     var streamIndex: Int
     var codec: String
     var action: Action
+    /// Applied while re-encoding; nil when nothing is shaped.
+    var shaping: AudioShaping?
 
     /// The codec as the muxer receives it untouched, or nil when it is re-encoded.
     var copiedCodec: String? {
@@ -61,15 +84,29 @@ struct AudioPlan: Equatable {
         return codec
     }
 
+    /// The codec the MP4 holds: the source's when copied, else what the encoder writes.
+    var outputCodec: String {
+        guard case .reencode(_, _, let encoding) = action else { return codec }
+        return encoding == .eac3 ? "eac3" : "aac"
+    }
+
+    /// Whether a muxer failure before the first segment is answered by running again with AAC: the output
+    /// is a copy, or E-AC-3 whose sample entry the muxer builds from the first packet.
+    var retriesAsAAC: Bool { copiedCodec != nil || outputCodec == "eac3" }
+
     static func decide(_ streams: [AudioStreamFacts], policy: AudioPolicy, forceReencode: Bool = false) -> AudioPlan? {
         let preferred = policy.preferredIndex.flatMap { index in streams.first { $0.index == index } }
         guard let stream = preferred ?? streams.first(where: \.isDefault) ?? streams.first else { return nil }
         let surround = stream.channels > 2
-        let reencode = Action.reencode(
-            channels: surround ? 6 : 2, bitRate: surround ? policy.surroundBitRate : policy.stereoBitRate
+        let shaping = policy.shaping.isActive ? policy.shaping : nil
+        // The forced re-encode is the fallback for a copy that broke the muxer, so it stays AAC.
+        let encoding: Encoding = surround && policy.surroundCodec == .eac3 && !forceReencode ? .eac3 : .aac
+        var action = Action.reencode(
+            channels: surround ? 6 : 2,
+            bitRate: encoding == .eac3 ? policy.eac3BitRate : surround ? policy.surroundBitRate : policy.stereoBitRate,
+            encoding: encoding
         )
-        var action = reencode
-        if !forceReencode, policy.copyable.contains(stream.codec) {
+        if !forceReencode, shaping == nil, policy.copyable.contains(stream.codec) {
             switch stream.codec {
             case "aac":
                 if isPlayableAAC(stream.audioSpecificConfig) { action = .copy }
@@ -81,7 +118,7 @@ struct AudioPlan: Equatable {
                 action = .copy
             }
         }
-        return AudioPlan(streamIndex: stream.index, codec: stream.codec, action: action)
+        return AudioPlan(streamIndex: stream.index, codec: stream.codec, action: action, shaping: shaping)
     }
 
     /// AAC-LC with a channel configuration, or HE-AAC with explicit SBR (object type 5 or 29). Implicit
