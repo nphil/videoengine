@@ -23,6 +23,7 @@ enum SyntheticAudio {
     static func shape(_ channels: [[Float]], layout: String, chain: String) throws -> [[Float]] {
         let total = channels[0].count
         let owner = try FFFrame()
+        defer { withExtendedLifetime(owner) {} }
         var shaper: AudioShaper?
         var shaped = [[Float]](repeating: [], count: channels.count)
         func collect(_ frame: UnsafeMutablePointer<AVFrame>) {
@@ -81,6 +82,12 @@ enum SyntheticAudio {
         }
 
         deinit { avformat_free_context(format) }
+
+        /// Feeds `samples` samples starting at `first` to `reencoder`, keeping the packet alive while it reads it.
+        func feed(_ reencoder: AudioReencoder, first: Int, samples: Int) throws -> [FFPacket] {
+            let chunk = try packet(first: first, samples: samples)
+            return try withExtendedLifetime(chunk) { try reencoder.process(chunk.pointer) }
+        }
 
         /// `samples` samples of a tone per channel starting at sample `first`, as a packet in the stream's time base.
         func packet(first: Int, samples: Int) throws -> FFPacket {
@@ -155,6 +162,7 @@ enum SyntheticAudio {
         try check(avformat_write_header(output, nil), "write header")
 
         let packet = try FFPacket()
+        defer { withExtendedLifetime(packet) {} }
         while av_read_frame(source, packet.pointer) >= 0 {
             defer { av_packet_unref(packet.pointer) }
             guard Int(packet.pointer.pointee.stream_index) == videoIndex else { continue }
@@ -166,6 +174,7 @@ enum SyntheticAudio {
         var first = 0
         while first < seconds * rate {
             let chunk = try tone.packet(first: first, samples: 1024)
+            defer { withExtendedLifetime(chunk) {} }
             let base = AVRational(num: 1, den: Int32(rate))
             chunk.pointer.pointee.pts = av_rescale_q(Int64(first), base, audio.pointee.time_base)
             chunk.pointer.pointee.dts = chunk.pointer.pointee.pts
@@ -284,7 +293,7 @@ struct AudioShapingTests {
         #expect(parameters.pointee.bit_rate == 640_000)
         var packets: [FFPacket] = []
         for first in stride(from: 0, to: 2 * Self.rate, by: 1536) {
-            packets += try reencoder.process(source.packet(first: first, samples: 1536).pointer)
+            packets += try source.feed(reencoder, first: first, samples: 1536)
         }
         packets += try reencoder.process(nil)
         #expect(packets.count >= 62)
@@ -301,7 +310,7 @@ struct AudioShapingTests {
             )
             var count = 0
             for first in stride(from: 0, to: 2 * Self.rate, by: 1536) {
-                count += try reencoder.process(source.packet(first: first, samples: 1536).pointer).count
+                count += try source.feed(reencoder, first: first, samples: 1536).count
             }
             return count + (try reencoder.process(nil)).count
         }
