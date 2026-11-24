@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An outline only, so it never tints the video it frames. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <stroke
+                android:width="4dp"
+                android:color="#FF8AB4F8" />
+        </shape>
+    </item>
+    <item android:drawable="@android:color/transparent" />
+</selector>

@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "about": "What ffprobe reports for each file in Tests/VideoEngineTests/Fixtures. The Android sample and the JVM tests compare the VideoEngine probe with the keys listed here and ignore the rest; 'reference' is information only. Language is the ISO 639-2 code ffprobe prints (Media3 reports the 2-letter form).",
+  "fixtures": {
+    "h264-aac-60s.mkv": {
+      "container": "matroska,webm",
+      "duration": 60.064,
+      "video": [
+        {
+          "index": 0,
+          "codec": "h264",
+          "profile": "High",
+          "level": 10,
+          "width": 96,
+          "height": 54,
+          "bitDepth": 8,
+          "colorRange": "tv"
+        }
+      ],
+      "audio": [
+        {
+          "index": 1,
+          "codec": "aac",
+          "profile": "LC",
+          "channels": 1,
+          "sampleRate": 16000,
+          "language": "eng"
+        }
+      ],
+      "subtitles": [],
+      "reference": {
+        "bitRate": 38579,
+        "ffprobe": "5.1.9-0+deb12u1",
+        "pixelFormat": "yuv420p",
+        "frameRate": "24/1"
+      }
+    },
+    "h264-aac.mkv": {
+      "container": "matroska,webm",
+      "duration": 3.021,
+      "video": [
+        {
+          "index": 0,
+          "codec": "h264",
+          "profile": "High",
+          "level": 12,
+          "width": 160,
+          "height": 90,
+          "bitDepth": 8
+        }
+      ],
+      "audio": [
+        {
+          "index": 1,
+          "codec": "aac",
+          "profile": "LC",
+          "channels": 1,
+          "sampleRate": 48000
+        }
+      ],
+      "subtitles": [],
+      "reference": {
+        "bitRate": 192103,
+        "ffprobe": "5.1.9-0+deb12u1",
+        "pixelFormat": "yuv420p",
+        "frameRate": "24/1"
+      }
+    },
+    "hevc10-opus-srt.mkv": {
+      "container": "matroska,webm",
+      "duration": 2.008,
+      "video": [
+        {
+          "index": 0,
+          "codec": "hevc",
+          "profile": "Main 10",
+          "level": 30,
+          "width": 160,
+          "height": 96,
+          "bitDepth": 10,
+          "colorTransfer": "smpte2084",
+          "colorPrimaries": "bt2020",
+          "colorRange": "tv"
+        }
+      ],
+      "audio": [
+        {
+          "index": 1,
+          "codec": "opus",
+          "channels": 2,
+          "sampleRate": 48000
+        }
+      ],
+      "subtitles": [
+        {
+          "index": 2,
+          "codec": "subrip",
+          "language": "eng"
+        }
+      ],
+      "reference": {
+        "bitRate": 214577,
+        "ffprobe": "5.1.9-0+deb12u1",
+        "pixelFormat": "yuv420p10le",
+        "frameRate": "24/1"
+      }
+    }
+  }
+}

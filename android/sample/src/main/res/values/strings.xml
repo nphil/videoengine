@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VideoEngine sample</string>
+    <string name="play">Play</string>
+    <string name="check">Check probe against manifest</string>
+    <string name="copy">Copy device report</string>
+    <string name="report_copied">Device report copied (%1$d characters) and saved to %2$s</string>
+    <string name="share">Share report on local network</string>
+    <string name="share_stop">Stop sharing</string>
+    <string name="share_wait">Still reading the hardware of this device. Try again in a moment.</string>
+    <string name="share_no_address">Network address not found</string>
+    <string name="share_hint">Open this address in a browser on a phone or computer on the same network. The text report is there; the data file is at /snapshot.json. Stops in %1$s, or when you leave this screen.</string>
+    <string name="share_hint_no_address">Connect this device to Wi-Fi or Ethernet. If it already is, find its address in the network settings and open http://ADDRESS:%2$d/ in a browser. Stops in %1$s.</string>
+    <string name="share_failed">Could not start sharing</string>
+    <string name="share_ended">Sharing stopped</string>
+</resources>

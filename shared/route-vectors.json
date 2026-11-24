@@ -1,0 +1,3238 @@
+{
+ "schema": 1,
+ "about": "Route-choice vectors shared by every platform's RoutePlanner (docs/PLATFORMS.md section 2.2). 'media' is a MediaInfo in FFmpeg vocabulary, 'capabilities' a HardwareCapabilities snapshot in the format a device report prints, 'verdicts' (optional) the decode verdict per video stream index that overrides the snapshot's answer. A rule change edits the contract and its vector in one commit. Device snapshots are provisional: they hold the platform plan's verified facts and list what is assumed or unknown; a real device report replaces them.",
+ "snapshots": [
+  {
+   "id": "xiaomi-pad-8-pro",
+   "title": "Xiaomi Pad 8 Pro (Snapdragon 8 Elite), from the spec sheet",
+   "provisional": true,
+   "source": "docs/PLATFORMS.md (D6 device facts), written before any device report exists",
+   "assumed": [
+    "decoder names (Qualcomm c2.qti is typical; none was read from the device)",
+    "HEVC, VP9 and AV1 profile lists follow from the advertised HDR10 and HDR10+ playback",
+    "H.264 hardware decode to 1080p60 (the spec sheet does not state H.264)",
+    "display HDR types: the marketing list HDR10, HLG, HDR10+, Dolby Vision; 60 Hz mode",
+    "software audio decoders AAC, MP3, FLAC, Opus, Vorbis, AMR (the Android CDD requires them)",
+    "64-bit only (Oryon cores)",
+    "HyperOS 3 is Android 16 (sdk 36)",
+    "8 GB (the 8 or 12 GB models)"
+   ],
+   "unknown": [
+    "Dolby Vision decoder profile list",
+    "Atmos path and Spatializer state",
+    "Dolby audio decoders",
+    "tunnelling",
+    "real Build.MODEL and decoder names"
+   ],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "c2.qti.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.qti.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.qti.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.qti.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "dv",
+      "hdr10",
+      "hdr10plus",
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3200,
+       "h": 2136,
+       "hz": 60.0
+      },
+      {
+       "w": 3200,
+       "h": 2136,
+       "hz": 144.0
+      }
+     ],
+     "maxFps": 144,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [],
+     "output": "speaker",
+     "maxChannelCount": 2,
+     "spatializer": {
+      "immersiveLevel": "unsupported",
+      "available": false,
+      "enabled": false
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "HyperOS 3 (Android 16)",
+     "osBuild": "provisional",
+     "machine": "Xiaomi Pad 8 Pro",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 8192,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "Snapdragon 8 Elite"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "onn-4k-pro-2026",
+   "title": "onn. 4K Pro (2026, Amlogic S905X5M), from the spec sheet",
+   "provisional": true,
+   "source": "docs/PLATFORMS.md (D6 device facts), written before any device report exists",
+   "assumed": [
+    "decoder names and profile lists (10-bit HEVC, VP9 Profile 2 and AV1 Main10 follow from '10-bit 4K at 75 fps')",
+    "H.264 hardware decode to 1080p60",
+    "display: a Dolby Vision TV (HDR10, HLG, Dolby Vision) at 24, 30, 50 and 60 Hz; the TV decides this",
+    "AC-3 and E-AC-3 passthrough (E-AC-3 JOC is verified)",
+    "6 channels",
+    "software audio decoders AAC, MP3, FLAC, Opus, Vorbis, AMR (the Android CDD requires them)",
+    "32-bit userspace reports armeabi-v7a",
+    "Android 14 (sdk 34), 3 GB",
+    "4 cores"
+   ],
+   "unknown": [
+    "Dolby Vision decoder profile list except that profile 7 is absent",
+    "DTS core passthrough",
+    "Spatializer state",
+    "Dolby audio decoders",
+    "real Build.MODEL and decoder names"
+   ],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "c2.amlogic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.amlogic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10"
+       ],
+       "maxFps": {
+        "sd": 75,
+        "720": 75,
+        "1080": 75,
+        "1440": 75,
+        "2160": 75
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.amlogic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2"
+       ],
+       "maxFps": {
+        "sd": 75,
+        "720": 75,
+        "1080": 75,
+        "1440": 75,
+        "2160": 75
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.amlogic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10"
+       ],
+       "maxFps": {
+        "sd": 75,
+        "720": 75,
+        "1080": 75,
+        "1440": 75,
+        "2160": 75
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "dv",
+      "hdr10",
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": false,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "eac3",
+      "eac3joc"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 6,
+     "spatializer": {
+      "immersiveLevel": "unsupported",
+      "available": false,
+      "enabled": false
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 14",
+     "osBuild": "provisional",
+     "machine": "onn. 4K Pro",
+     "simulator": false,
+     "logicalCores": 4,
+     "memoryMB": 3072,
+     "sdk": 34,
+     "abis": [
+      "armeabi-v7a",
+      "armeabi"
+     ],
+     "soc": "Amlogic S905X5M"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "onn-4k-pro-2024",
+   "title": "onn. 4K Pro (2024, Amlogic S905X4), decoder families only",
+   "provisional": true,
+   "source": "docs/PLATFORMS.md (D6 device facts), written before any device report exists",
+   "assumed": [
+    "every decoder is listed at the lowest limit that is certain (1080p30, 1080p60 below); the real limits are higher",
+    "decoder names and profile lists",
+    "display and audio as the 2026 box",
+    "software audio decoders AAC, MP3, FLAC, Opus, Vorbis, AMR (the Android CDD requires them)",
+    "32-bit userspace reports armeabi-v7a",
+    "Android 12 to 14 (sdk 34 used), 3 GB, 4 cores"
+   ],
+   "unknown": [
+    "every decoder limit",
+    "Dolby Vision",
+    "Atmos path",
+    "which generation the owner has"
+   ],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "c2.amlogic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 30
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.amlogic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 30
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.amlogic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 30
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.amlogic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 30
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "hdr10",
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": false,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "eac3"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 6,
+     "spatializer": {
+      "immersiveLevel": "unsupported",
+      "available": false,
+      "enabled": false
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 14",
+     "osBuild": "provisional",
+     "machine": "onn. 4K Pro",
+     "simulator": false,
+     "logicalCores": 4,
+     "memoryMB": 3072,
+     "sdk": 34,
+     "abis": [
+      "armeabi-v7a",
+      "armeabi"
+     ],
+     "soc": "Amlogic S905X4"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "synthetic-strong",
+   "title": "Everything the planner can ask for: 8K, every HDR type, Dolby Vision 5, 7 and 8, every passthrough format",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High",
+        "High10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.dolby-vision.decoder",
+       "mime": "video/dolby-vision",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "DvheStn",
+        "DvheDtb",
+        "DvheSt"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "synthetic.ac3.decoder",
+       "mime": "audio/ac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      },
+      {
+       "name": "synthetic.eac3.decoder",
+       "mime": "audio/eac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "dv",
+      "hdr10",
+      "hdr10plus",
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "ac4",
+      "dts",
+      "dtshd",
+      "dtsuhd",
+      "eac3",
+      "eac3joc",
+      "truehd"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 8,
+     "spatializer": {
+      "immersiveLevel": "multichannel",
+      "available": true,
+      "enabled": true
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 16",
+     "osBuild": "provisional",
+     "machine": "Synthetic strong",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 12288,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "synthetic-weak",
+   "title": "A low-end box: SDR display, software HEVC and AV1, no passthrough, hot and saving power",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 30
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "c2.android.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": false,
+       "softwareOnly": true,
+       "vendor": false,
+       "profiles": [
+        "Main",
+        "Main10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 30,
+        "2160": 30
+       },
+       "performancePoints": false,
+       "tunneling": false
+      },
+      {
+       "name": "c2.android.av1.decoder",
+       "mime": "video/av01",
+       "hardware": false,
+       "softwareOnly": true,
+       "vendor": false,
+       "profiles": [
+        "Main8"
+       ],
+       "maxFps": {
+        "sd": 30,
+        "720": 30,
+        "1080": 30
+       },
+       "performancePoints": false,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [],
+     "modes": [
+      {
+       "w": 1920,
+       "h": 1080,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": false,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [],
+     "output": "hdmi",
+     "maxChannelCount": 2,
+     "spatializer": {
+      "immersiveLevel": "unsupported",
+      "available": false,
+      "enabled": false
+     }
+    },
+    "power": {
+     "thermal": "serious",
+     "lowPowerMode": true,
+     "battery": {
+      "level": 0.15,
+      "charging": false
+     }
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 10",
+     "osBuild": "provisional",
+     "machine": "Synthetic weak",
+     "simulator": false,
+     "logicalCores": 4,
+     "memoryMB": 1536,
+     "sdk": 29,
+     "abis": [
+      "armeabi-v7a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "synthetic-dv-tv",
+   "title": "Dolby Vision 5 and 8 decoders and a Dolby Vision display, no profile 7",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High",
+        "High10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.dolby-vision.decoder",
+       "mime": "video/dolby-vision",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "DvheStn",
+        "DvheSt"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "synthetic.ac3.decoder",
+       "mime": "audio/ac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      },
+      {
+       "name": "synthetic.eac3.decoder",
+       "mime": "audio/eac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "dv",
+      "hdr10",
+      "hdr10plus",
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "ac4",
+      "dts",
+      "dtshd",
+      "dtsuhd",
+      "eac3",
+      "eac3joc",
+      "truehd"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 8,
+     "spatializer": {
+      "immersiveLevel": "multichannel",
+      "available": true,
+      "enabled": true
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 16",
+     "osBuild": "provisional",
+     "machine": "Synthetic strong",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 12288,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "synthetic-hdr-tv",
+   "title": "HDR10 and HLG display, no Dolby Vision decoder, no profile 7 fallback",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High",
+        "High10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "synthetic.ac3.decoder",
+       "mime": "audio/ac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      },
+      {
+       "name": "synthetic.eac3.decoder",
+       "mime": "audio/eac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "hdr10",
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "ac4",
+      "dts",
+      "dtshd",
+      "dtsuhd",
+      "eac3",
+      "eac3joc",
+      "truehd"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 8,
+     "spatializer": {
+      "immersiveLevel": "multichannel",
+      "available": true,
+      "enabled": true
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 16",
+     "osBuild": "provisional",
+     "machine": "Synthetic strong",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 12288,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "synthetic-hdr-tv-fallback7",
+   "title": "As synthetic-hdr-tv, on an engine that plays profile 7 through its base layer",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High",
+        "High10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "synthetic.ac3.decoder",
+       "mime": "audio/ac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      },
+      {
+       "name": "synthetic.eac3.decoder",
+       "mime": "audio/eac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "hdr10",
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "ac4",
+      "dts",
+      "dtshd",
+      "dtsuhd",
+      "eac3",
+      "eac3joc",
+      "truehd"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 8,
+     "spatializer": {
+      "immersiveLevel": "multichannel",
+      "available": true,
+      "enabled": true
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 16",
+     "osBuild": "provisional",
+     "machine": "Synthetic strong",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 12288,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": true
+    }
+   }
+  },
+{
+   "id": "synthetic-dv-decoder-hdr10-display",
+   "title": "Dolby Vision decoders behind a display that only shows HDR10 and HLG",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High",
+        "High10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.dolby-vision.decoder",
+       "mime": "video/dolby-vision",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "DvheStn",
+        "DvheDtb",
+        "DvheSt"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "synthetic.ac3.decoder",
+       "mime": "audio/ac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      },
+      {
+       "name": "synthetic.eac3.decoder",
+       "mime": "audio/eac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "hdr10",
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "ac4",
+      "dts",
+      "dtshd",
+      "dtsuhd",
+      "eac3",
+      "eac3joc",
+      "truehd"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 8,
+     "spatializer": {
+      "immersiveLevel": "multichannel",
+      "available": true,
+      "enabled": true
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 16",
+     "osBuild": "provisional",
+     "machine": "Synthetic strong",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 12288,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "synthetic-hdr10-only-tv",
+   "title": "A display that only accepts HDR10",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High",
+        "High10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "synthetic.ac3.decoder",
+       "mime": "audio/ac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      },
+      {
+       "name": "synthetic.eac3.decoder",
+       "mime": "audio/eac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "hdr10"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "ac4",
+      "dts",
+      "dtshd",
+      "dtsuhd",
+      "eac3",
+      "eac3joc",
+      "truehd"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 8,
+     "spatializer": {
+      "immersiveLevel": "multichannel",
+      "available": true,
+      "enabled": true
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 16",
+     "osBuild": "provisional",
+     "machine": "Synthetic strong",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 12288,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "synthetic-hlg-only-tv",
+   "title": "A display that only accepts HLG",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High",
+        "High10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "synthetic.ac3.decoder",
+       "mime": "audio/ac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      },
+      {
+       "name": "synthetic.eac3.decoder",
+       "mime": "audio/eac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "ac4",
+      "dts",
+      "dtshd",
+      "dtsuhd",
+      "eac3",
+      "eac3joc",
+      "truehd"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 8,
+     "spatializer": {
+      "immersiveLevel": "multichannel",
+      "available": true,
+      "enabled": true
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 16",
+     "osBuild": "provisional",
+     "machine": "Synthetic strong",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 12288,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "synthetic-hdr10plus-only-tv",
+   "title": "A display that lists HDR10+ and nothing else",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High",
+        "High10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "synthetic.ac3.decoder",
+       "mime": "audio/ac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      },
+      {
+       "name": "synthetic.eac3.decoder",
+       "mime": "audio/eac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "hdr10plus"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": false
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "ac4",
+      "dts",
+      "dtshd",
+      "dtsuhd",
+      "eac3",
+      "eac3joc",
+      "truehd"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 8,
+     "spatializer": {
+      "immersiveLevel": "multichannel",
+      "available": true,
+      "enabled": true
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 16",
+     "osBuild": "provisional",
+     "machine": "Synthetic strong",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 12288,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  },
+{
+   "id": "synthetic-strong-external",
+   "title": "synthetic-strong while casting to an external display",
+   "provisional": false,
+   "source": "synthetic: written by hand for the planner vectors, not a real device",
+   "assumed": [],
+   "unknown": [],
+   "capabilities": {
+    "schema": 1,
+    "decode": {
+     "representative": true,
+     "video": [
+      {
+       "name": "synthetic.avc.decoder",
+       "mime": "video/avc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Baseline",
+        "Main",
+        "High",
+        "High10"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.hevc.decoder",
+       "mime": "video/hevc",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.vp9.decoder",
+       "mime": "video/x-vnd.on2.vp9",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Profile0",
+        "Profile2",
+        "Profile2HDR",
+        "Profile2HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.av1.decoder",
+       "mime": "video/av01",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "Main8",
+        "Main10",
+        "Main10HDR10",
+        "Main10HDR10Plus"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60,
+        "4320": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      },
+      {
+       "name": "synthetic.dolby-vision.decoder",
+       "mime": "video/dolby-vision",
+       "hardware": true,
+       "softwareOnly": false,
+       "vendor": true,
+       "profiles": [
+        "DvheStn",
+        "DvheDtb",
+        "DvheSt"
+       ],
+       "maxFps": {
+        "sd": 60,
+        "720": 60,
+        "1080": 60,
+        "1440": 60,
+        "2160": 60
+       },
+       "performancePoints": true,
+       "tunneling": false
+      }
+     ],
+     "audio": [
+      {
+       "name": "c2.android.aac.decoder",
+       "mime": "audio/mp4a-latm",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.mp3.decoder",
+       "mime": "audio/mpeg",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.flac.decoder",
+       "mime": "audio/flac",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.opus.decoder",
+       "mime": "audio/opus",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.vorbis.decoder",
+       "mime": "audio/vorbis",
+       "softwareOnly": true,
+       "maxChannels": 8
+      },
+      {
+       "name": "c2.android.amrnb.decoder",
+       "mime": "audio/3gpp",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "c2.android.amrwb.decoder",
+       "mime": "audio/amr-wb",
+       "softwareOnly": true,
+       "maxChannels": 1
+      },
+      {
+       "name": "synthetic.ac3.decoder",
+       "mime": "audio/ac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      },
+      {
+       "name": "synthetic.eac3.decoder",
+       "mime": "audio/eac3",
+       "softwareOnly": false,
+       "maxChannels": 8
+      }
+     ]
+    },
+    "encode": {
+     "hevc": "unknown",
+     "h264": "unknown"
+    },
+    "display": {
+     "hdrTypes": [
+      "dv",
+      "hdr10",
+      "hdr10plus",
+      "hlg"
+     ],
+     "modes": [
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 24.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 30.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 50.0
+      },
+      {
+       "w": 3840,
+       "h": 2160,
+       "hz": 60.0
+      }
+     ],
+     "maxFps": 60,
+     "wideGamut": true,
+     "edrHeadroomPotential": 1.0,
+     "edrHeadroomCurrent": 1.0,
+     "capturing": false,
+     "externalPlaybackActive": true
+    },
+    "audio": {
+     "passthrough": [
+      "ac3",
+      "ac4",
+      "dts",
+      "dtshd",
+      "dtsuhd",
+      "eac3",
+      "eac3joc",
+      "truehd"
+     ],
+     "output": "hdmi",
+     "maxChannelCount": 8,
+     "spatializer": {
+      "immersiveLevel": "multichannel",
+      "available": true,
+      "enabled": true
+     }
+    },
+    "power": {
+     "thermal": "nominal",
+     "lowPowerMode": false,
+     "battery": {}
+    },
+    "compute": {
+     "appVersion": "vectors",
+     "osVersion": "Android 16",
+     "osBuild": "provisional",
+     "machine": "Synthetic strong",
+     "simulator": false,
+     "logicalCores": 8,
+     "memoryMB": 12288,
+     "sdk": 36,
+     "abis": [
+      "arm64-v8a"
+     ],
+     "soc": "synthetic"
+    },
+    "engine": {
+     "player": "media3 1.11.1",
+     "dav1d": false,
+     "softwareAudio": [],
+     "dolbyVision7Fallback": false
+    }
+   }
+  }
+ ],
+ "vectors": [
+  {"id": "r1-nothing-in-the-file", "rule": 1, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [], "audio": [], "subtitles": []}, "expect": {"route": "error", "reason": "no-streams"}},
+  {"id": "r1-subtitles-only", "rule": 1, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [], "audio": [], "subtitles": [{"index": 2, "codec": "subrip", "language": "en", "isDefault": false, "isForced": false, "isBitmap": false}]}, "expect": {"route": "error", "reason": "no-streams"}},
+  {"id": "r1-video-without-audio-plays", "rule": 1, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [], "subtitles": []}, "note": "Rule 1 needs neither a video nor an audio stream.", "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r1-audio-without-video-plays", "rule": 1, "snapshot": "synthetic-strong", "media": {"container": "mov,mp4,m4a,3gp,3g2,mj2", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r2-422-10-bit", "rule": 2, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 10, "isDefault": true, "profile": "Rext", "pixelFormat": "yuv422p10le", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "r2-444-8-bit", "rule": 2, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High 4:4:4 Predictive", "pixelFormat": "yuv444p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "r2-12-bit", "rule": 2, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 12, "isDefault": true, "profile": "Rext", "pixelFormat": "yuv420p12le", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "r2-rgb", "rule": 2, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High 4:4:4 Predictive", "pixelFormat": "gbrp", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "r2-422-without-pixel-format", "rule": 2, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 10, "isDefault": true, "profile": "Rext", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "note": "The Android probe leaves the pixel format empty; the profile and bit depth still decide.", "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "r2-codec-without-android-decoder", "rule": 2, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "prores", "width": 1920, "height": 1080, "bitDepth": 10, "isDefault": true, "profile": "422 HQ", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "r2-high-10-without-decoder-profile", "rule": 2, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 10, "isDefault": true, "profile": "High 10", "pixelFormat": "yuv420p10le", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "r2-high-10-with-decoder-profile", "rule": 2, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 10, "isDefault": true, "profile": "High 10", "pixelFormat": "yuv420p10le", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r2-av1-10-bit-without-main10", "rule": 2, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "av1", "width": 1920, "height": 1080, "bitDepth": 10, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p10le", "frameRate": 24, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "note": "Rule 2 comes before rule 3: the decoder cannot do it, so the display never matters.", "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "r2-given-verdict-unsupported", "rule": 2, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "verdicts": {"0": "unsupported"}, "note": "A verdict the caller measured wins over the snapshot.", "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "r3-hdr10-on-sdr-display", "rule": 3, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "hdr-display-missing"}},
+  {"id": "r3-hlg-on-sdr-display", "rule": 3, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 23.976, "colorTransfer": "arib-std-b67", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "hdr-display-missing"}},
+  {"id": "r3-dolby-vision-on-sdr-display", "rule": 3, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020", "dolbyVision": {"profile": 8, "level": 4, "compatibilityId": 1}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "hdr-display-missing"}},
+  {"id": "r3-hdr10-on-hlg-only-display", "rule": 3, "snapshot": "synthetic-hlg-only-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "note": "Refinement of rule 3 (same reason code): the display lists HDR but not the stream's format; never show a wrong picture.", "expect": {"route": "serverTranscode", "reason": "hdr-display-missing"}},
+  {"id": "r3-hlg-on-hdr10-only-display", "rule": 3, "snapshot": "synthetic-hdr10-only-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 23.976, "colorTransfer": "arib-std-b67", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "hdr-display-missing"}},
+  {"id": "r3-hdr10-on-hdr10plus-display", "rule": 3, "snapshot": "synthetic-hdr10plus-only-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "note": "An HDR10+ display also shows HDR10.", "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r3-hdr10-on-hdr-display", "rule": 3, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r4-profile-5-native", "rule": 4, "snapshot": "synthetic-dv-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "dolbyVision": {"profile": 5, "level": 6, "compatibilityId": 0}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r4-profile-5-without-decoder", "rule": 4, "snapshot": "synthetic-hdr-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "dolbyVision": {"profile": 5, "level": 6, "compatibilityId": 0}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "dv5-unsupported"}},
+  {"id": "r4-profile-5-decoder-but-hdr10-display", "rule": 4, "snapshot": "synthetic-dv-decoder-hdr10-display", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "dolbyVision": {"profile": 5, "level": 6, "compatibilityId": 0}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "dv5-unsupported"}},
+  {"id": "r4-profile-8-native", "rule": 4, "snapshot": "synthetic-dv-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020", "dolbyVision": {"profile": 8, "level": 6, "compatibilityId": 1}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r4-profile-8-plays-hdr10-base-layer", "rule": 4, "snapshot": "synthetic-hdr-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020", "dolbyVision": {"profile": 8, "level": 6, "compatibilityId": 1}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r4-profile-8-plays-hlg-base-layer", "rule": 4, "snapshot": "synthetic-hdr-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "colorTransfer": "arib-std-b67", "colorPrimaries": "bt2020", "dolbyVision": {"profile": 8, "level": 6, "compatibilityId": 4}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r4-profile-8-hlg-base-layer-on-hdr10-only-display", "rule": 4, "snapshot": "synthetic-hdr10-only-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "colorTransfer": "arib-std-b67", "colorPrimaries": "bt2020", "dolbyVision": {"profile": 8, "level": 6, "compatibilityId": 4}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "hdr-display-missing"}},
+  {"id": "r4-profile-8-sdr-base-layer-on-any-hdr-display", "rule": 4, "snapshot": "synthetic-hdr10-only-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "dolbyVision": {"profile": 8, "level": 6, "compatibilityId": 2}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r4-profile-8-unstated-base-layer-is-hdr10", "rule": 4, "snapshot": "synthetic-hdr-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020", "dolbyVision": {"profile": 8, "level": 6}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r4-profile-8-unstated-base-layer-with-hlg-transfer", "rule": 4, "snapshot": "synthetic-hdr10-only-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "colorTransfer": "arib-std-b67", "colorPrimaries": "bt2020", "dolbyVision": {"profile": 8, "level": 6}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "hdr-display-missing"}},
+  {"id": "r4b-profile-7-native", "rule": "4b", "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "dolbyVision": {"profile": 7, "level": 6, "compatibilityId": 6}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r4b-profile-7-without-decoder-or-fallback", "rule": "4b", "snapshot": "synthetic-hdr-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "dolbyVision": {"profile": 7, "level": 6, "compatibilityId": 6}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "note": "Media3 1.11.1 has no profile 7 fallback; a profile 5 decoder would draw it grey and washed out.", "expect": {"route": "serverTranscode", "reason": "dv-unsupported"}},
+  {"id": "r4b-profile-7-on-dv-tv-without-p7-decoder", "rule": "4b", "snapshot": "synthetic-dv-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "dolbyVision": {"profile": 7, "level": 6, "compatibilityId": 6}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "dv-unsupported"}},
+  {"id": "r4b-profile-7-plays-hdr10-base-layer-when-engine-falls-back", "rule": "4b", "snapshot": "synthetic-hdr-tv-fallback7", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "dolbyVision": {"profile": 7, "level": 6, "compatibilityId": 6}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r4b-profile-10-av1-without-decoder", "rule": "4b", "snapshot": "synthetic-dv-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "av1", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main", "frameRate": 23.976, "dolbyVision": {"profile": 10, "level": 6, "compatibilityId": 1}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "dv-unsupported"}},
+  {"id": "r4b-profile-9-avc-without-decoder", "rule": "4b", "snapshot": "synthetic-dv-tv", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "frameRate": 23.976, "dolbyVision": {"profile": 9, "level": 4, "compatibilityId": 2}}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "dv-unsupported"}},
+  {"id": "r5-software-hevc-4k", "rule": 5, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "software-decode-too-heavy"}},
+  {"id": "r5-software-hevc-1080p60", "rule": 5, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p", "frameRate": 60}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "software-decode-too-heavy"}},
+  {"id": "r5-software-hevc-1080p30-plays", "rule": 5, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p", "frameRate": 30.0}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r5-software-hevc-1080p29.97-plays", "rule": 5, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p", "frameRate": 29.97}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r5-software-hevc-unknown-frame-rate-plays", "rule": 5, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "note": "An unstated frame rate counts as within the limit.", "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r5-software-av1-1080p24-plays", "rule": 5, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "av1", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r5-given-hardware-verdict-skips-the-limit", "rule": 5, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "verdicts": {"0": "hardware"}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r5-hardware-hevc-4k-plays", "rule": 5, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r6-eac3-without-path", "rule": 6, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "eac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "note": "Audio is re-encoded, video is copied: the route is still the server.", "expect": {"route": "serverTranscode", "reason": "audio-unplayable"}},
+  {"id": "r6-truehd-without-path", "rule": 6, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "truehd", "channels": 8, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "TrueHD"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "audio-unplayable"}},
+  {"id": "r6-dts-without-path", "rule": 6, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "dts", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "DTS"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "audio-unplayable"}},
+  {"id": "r6-atmos-through-passthrough", "rule": 6, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "eac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "Dolby Digital Plus + Dolby Atmos"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r6-truehd-atmos-through-passthrough", "rule": 6, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 23.976, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "truehd", "channels": 8, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "TrueHD + Dolby Atmos"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r6-default-audio-is-the-one-checked", "rule": 6, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}, {"index": 2, "codec": "eac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": false}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r6-chosen-audio-is-the-one-checked", "rule": 6, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}, {"index": 2, "codec": "eac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": false}], "subtitles": []}, "options": {"audioIndex": 2}, "expect": {"route": "serverTranscode", "reason": "audio-unplayable"}},
+  {"id": "r6-without-default-the-first-audio-is-checked", "rule": 6, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "eac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": false}, {"index": 2, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": false, "profile": "LC"}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "audio-unplayable"}},
+  {"id": "r6-pcm-needs-no-decoder", "rule": 6, "snapshot": "synthetic-weak", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "pcm_s16le", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r6-codec-the-planner-does-not-know", "rule": 6, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "wmav2", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "audio-unplayable"}},
+  {"id": "r6-audio-only-without-path", "rule": 6, "snapshot": "synthetic-weak", "media": {"container": "mov,mp4,m4a,3gp,3g2,mj2", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "eac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "audio-unplayable"}},
+  {"id": "r6-amr-through-the-platform-decoder", "rule": 6, "snapshot": "synthetic-weak", "media": {"container": "amr", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "amr_nb", "channels": 1, "sampleRate": 8000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-matroska", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-mp4", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "mov,mp4,m4a,3gp,3g2,mj2", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-mpeg-ts", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "mpegts", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p", "frameRate": 25}], "audio": [{"index": 1, "codec": "ac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-mpeg-ps", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "mpeg", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "ac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-flv", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "flv", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-avi", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "avi", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1280, "height": 720, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "ac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "note": "Media3 1.11.1 reads AVI (AviExtractor); docs/PLATFORMS.md [M1] says it does not and is corrected with this file.", "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-ogg", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "ogg", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "vorbis", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-wav", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "wav", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "pcm_s16le", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-mp3", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "mp3", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "mp3", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-flac", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "flac", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "flac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-adts-aac", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "aac", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-ac3", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "ac3", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "ac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r7-eac3", "rule": 7, "snapshot": "synthetic-strong", "media": {"container": "eac3", "duration": 600.0, "video": [], "audio": [{"index": 1, "codec": "eac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "r8-asf-goes-to-the-server-where-nothing-can-repackage", "rule": 8, "snapshot": "synthetic-strong", "media": {"container": "asf", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "note": "Android cannot repackage before stage 5, so the reason stays and the route is the server.", "expect": {"route": "serverTranscode", "reason": "container-unreadable"}},
+  {"id": "r8-mxf-goes-to-the-server", "rule": 8, "snapshot": "synthetic-strong", "media": {"container": "mxf", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "pcm_s24le", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "container-unreadable"}},
+  {"id": "r8-asf-repackages-where-the-build-can", "rule": 8, "snapshot": "synthetic-strong", "media": {"container": "asf", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "options": {"canRepackage": true}, "expect": {"route": "repackage", "reason": "container-unreadable"}},
+  {"id": "r9-repackage-while-casting", "rule": 9, "snapshot": "synthetic-strong-external", "media": {"container": "asf", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "options": {"canRepackage": true}, "expect": {"route": "serverTranscode", "reason": "external-playback"}},
+  {"id": "r10-container-nobody-named", "rule": 10, "snapshot": "synthetic-strong", "media": {"container": "ivf", "duration": 600.0, "video": [{"index": 0, "codec": "vp9", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "Profile 0", "pixelFormat": "yuv420p", "frameRate": 30}], "audio": [], "subtitles": []}, "expect": {"route": "serverTranscode", "reason": "fallback"}},
+  {"id": "pad-hevc-4k60-hdr10", "rule": 7, "snapshot": "xiaomi-pad-8-pro", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 59.94, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "pad-av1-8k60-hdr10", "rule": 7, "snapshot": "xiaomi-pad-8-pro", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "av1", "width": 7680, "height": 4320, "bitDepth": 10, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p10le", "frameRate": 60, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "pad-vp9-4k60-hlg", "rule": 7, "snapshot": "xiaomi-pad-8-pro", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "vp9", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Profile 2", "pixelFormat": "yuv420p10le", "frameRate": 60, "colorTransfer": "arib-std-b67", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "opus", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "pad-h264-1080p", "rule": 7, "snapshot": "xiaomi-pad-8-pro", "media": {"container": "mov,mp4,m4a,3gp,3g2,mj2", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "onn26-hevc-4k60-hdr10-atmos", "rule": 7, "snapshot": "onn-4k-pro-2026", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 59.94, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "eac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "Dolby Digital Plus + Dolby Atmos"}], "subtitles": []}, "note": "E-AC-3 JOC passthrough works on this box (docs/PLATFORMS.md).", "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "onn26-av1-4k60-hlg", "rule": 7, "snapshot": "onn-4k-pro-2026", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "av1", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p10le", "frameRate": 59.94, "colorTransfer": "arib-std-b67", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "onn26-hevc-8k-has-no-decoder", "rule": 2, "snapshot": "onn-4k-pro-2026", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 7680, "height": 4320, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "pixelFormat": "yuv420p10le", "frameRate": 30, "colorTransfer": "smpte2084", "colorPrimaries": "bt2020"}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "note": "The snapshot lists hardware decoders only; the real report adds the software ones and may turn this into software-decode-too-heavy.", "expect": {"route": "serverTranscode", "reason": "unsupported-video"}},
+  {"id": "onn26-dolby-vision-profile-7", "rule": "4b", "snapshot": "onn-4k-pro-2026", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 3840, "height": 2160, "bitDepth": 10, "isDefault": true, "profile": "Main 10", "frameRate": 23.976, "dolbyVision": {"profile": 7, "level": 6, "compatibilityId": 6}}], "audio": [{"index": 1, "codec": "eac3", "channels": 6, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "Dolby Digital Plus + Dolby Atmos"}], "subtitles": []}, "note": "No profile 7 decoder on this box (docs/PLATFORMS.md) and no engine fallback in Media3 1.11.1.", "expect": {"route": "serverTranscode", "reason": "dv-unsupported"}},
+  {"id": "onn24-hevc-1080p24", "rule": 7, "snapshot": "onn-4k-pro-2024", "media": {"container": "matroska,webm", "duration": 600.0, "video": [{"index": 0, "codec": "hevc", "width": 1920, "height": 1080, "bitDepth": 8, "isDefault": true, "profile": "Main", "pixelFormat": "yuv420p", "frameRate": 24}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}},
+  {"id": "onn24-h264-720p30", "rule": 7, "snapshot": "onn-4k-pro-2024", "media": {"container": "mov,mp4,m4a,3gp,3g2,mj2", "duration": 600.0, "video": [{"index": 0, "codec": "h264", "width": 1280, "height": 720, "bitDepth": 8, "isDefault": true, "profile": "High", "pixelFormat": "yuv420p", "frameRate": 30}], "audio": [{"index": 1, "codec": "aac", "channels": 2, "sampleRate": 48000, "language": "en", "isDefault": true, "profile": "LC"}], "subtitles": []}, "expect": {"route": "directPlay", "reason": "ok"}}
+ ]
+}

@@ -37,8 +37,8 @@ timeout 8 s; cancelling cancels the source.
 
 | Fact | Contract value | Apple (E) | Android |
 |---|---|---|---|
-| Container | FFmpeg demuxer name (`matroska,webm`, `mov,mp4,m4a,3gp,3g2,mj2`) | `avformat` | map from Media3 extractor or MIME via a table in `shared/vectors` ⚠ |
-| Codec | FFmpeg codec name (`h264 hevc av1 vp9 eac3 truehd subrip hdmv_pgs_subtitle`) | `avcodec_get_name` | MIME to FFmpeg name, same vectors |
+| Container | FFmpeg demuxer name (`matroska,webm`, `mov,mp4,m4a,3gp,3g2,mj2`) | `avformat` | Media3 container MIME to the FFmpeg name through one table in `ProbeMapper` (stage 1); `shared/fixtures/manifest.json` checks it |
+| Codec | FFmpeg codec name (`h264 hevc av1 vp9 eac3 truehd subrip hdmv_pgs_subtitle`) | `avcodec_get_name` | Media3 MIME or `codecs` string to the FFmpeg name in `ProbeMapper`, checked against the same manifest |
 | Video | profile, pixel format, size, bit depth, transfer (`smpte2084`, `arib-std-b67`), primaries; cover art excluded | `VideoStreamInfo` | `Format` and `ColorInfo` via Media3 `MetadataRetriever` [M9]; FFmpeg only for what Media3 lacks (mastering display, light level) ⚠ |
 | Dolby Vision | profile, level, compatibility id | `dvcC`/`dvvC`; `dolbyVisionFallback` from server data | codecs string (`dvhe.08.06`) and record from `Format` ⚠; same server fallback |
 | Audio, subtitles | index, codec, language, title, default; subtitles add forced and `isBitmap` (PGS, DVB, VobSub) | `AudioStreamInfo`, `SubtitleStreamInfo` | `Tracks` and `Format` |
@@ -55,8 +55,9 @@ vectors. First match wins:
 |---|---|---|---|---|
 | 1 | no playable audio or video stream | error `noPlayableStreams` | `no-streams` | E |
 | 2 | pixel format outside 4:2:0 at 8 or 10 bit (4:2:2, 4:4:4, 12-bit, RGB), or codec verdict `unsupported` | `serverTranscode` | `unsupported-video` | E |
-| 3 | HDR or Dolby Vision source, display not HDR-eligible | `serverTranscode` | `hdr-display-missing` | E |
+| 3 | HDR or Dolby Vision source, display not HDR-eligible. Android also checks the type: HDR10 and HLG need that exact type on the display, an HDR10+ display accepts HDR10 | `serverTranscode` | `hdr-display-missing` | E |
 | 4 | Dolby Vision profile 5 and no DV decoder and display | `serverTranscode` | `dv5-unsupported` | P |
+| 4b | Dolby Vision the decoder and display cannot play natively and that has no base-layer path: profile 7 until the engine falls back to the HEVC base layer, and profiles 4, 9, 10 (Android; profile 8 plays its base layer under rule 3) | `serverTranscode` | `dv-unsupported` | P |
 | 5 | verdict `softwareOnly` above 1080p or 30 fps (thresholds to be measured) | `serverTranscode` | `software-decode-too-heavy` | P |
 | 6 | no audio path (2.5) | `serverTranscode`: audio re-encoded, video copied | `audio-unplayable` | P |
 | 7 | the platform player opens the container and codecs | `directPlay` | `ok` | E |
@@ -66,8 +67,8 @@ vectors. First match wins:
 
 | Route | Apple | Android |
 |---|---|---|
-| `directPlay` | MP4, MOV, HLS with H.264/HEVC and playable audio | everything Media3 reads, **including Matroska and WebM**, also MPEG-TS, MPEG-PS, FLV, Ogg [M1] |
-| `repackage` | `RemuxSession`: fragmented MP4 served as HLS on 127.0.0.1 | **not needed for Matroska.** Only AVI, ASF/WMV, RealMedia, absent from Media3's list [M1]; stages 1 to 4 send them to the server (D8) |
+| `directPlay` | MP4, MOV, HLS with H.264/HEVC and playable audio | everything Media3 reads, **including Matroska and WebM**, also MPEG-TS, MPEG-PS, FLV, Ogg, AVI and the raw audio formats (MP3, FLAC, WAV, ADTS AAC, AC-3, E-AC-3, AMR) [M1] |
+| `repackage` | `RemuxSession`: fragmented MP4 served as HLS on 127.0.0.1 | **not needed for Matroska or AVI.** Only ASF/WMV, RealMedia, MXF, NUT, SWF are outside Media3's readers [M1]; until the remux exists (stage 5) the planner answers `repackage` only when the caller passes `canRepackage`, else `serverTranscode` with the same reason `container-unreadable` (D8) |
 | `serverTranscode` | the media server | same |
 
 ### 2.3 Video: codec by hardware verdict
@@ -106,10 +107,10 @@ Dynamic range is declared up front (`VIDEO-RANGE` `SDR`, `PQ`, `HLG`).
 | HDR10, HDR10+, HLG, HDR display | plays HDR (HDR10+ as HDR10 where no dynamic-metadata decoder) | `hvc1`, `colr` 9/16/9 or 9/18/9, `mdcv`, `clli` kept | platform decoder and HDR display path [M1][A3] |
 | any HDR, display not HDR | server transcode | rule 3 | same. Playback tone mapping on an SDR panel is **not documented** ⚠; Media3 tone-mapping docs cover export only [M13] |
 | DV profile 5 | Dolby Vision only, colours unspecified | `dvh1`, record kept or added from fallback, `write_colr` | needs a P5 decoder (`DolbyVisionProfileDvheStn`) and DV display; no base layer, so server (rule 4) [M3] |
-| DV profile 7, MEL or FEL | HDR10 base layer by default | `dovi_rpu` strips RPU and enhancement layer; dual-track copies base only | Media3 falls back to a plain HEVC decoder for backward-compatible P7 from 1.12.0-beta01 (P8 already) [M2][M3]. **Before that, P7 went to a P5 decoder and looked grey and washed out** on DV TVs without a P7 decoder [M3] |
+| DV profile 7, MEL or FEL | HDR10 base layer by default | `dovi_rpu` strips RPU and enhancement layer; dual-track copies base only | Media3 falls back to a plain HEVC decoder for backward-compatible P7 from 1.12.0-beta01 (P8 already) [M2][M3]. **Before that, P7 went to a P5 decoder and looked grey and washed out** on DV TVs without a P7 decoder [M3]. The pinned 1.11.1 has no fallback (`engine.dolbyVision7Fallback` is false in the snapshot), so without a P7 decoder it goes to the server, rule 4b |
 | DV profile 7 as 8.1 (*2.2.0*, opt-in) | drop enhancement layer, rewrite RPUs (NLQ removed, CRC-32 redone) | `DolbyVisionRPU`, checked byte for byte against `dovi_tool` | needs sample rewrite before the decoder: shared native module, stage 5 ⚠ feasible inside a Media3 extractor wrapper |
 | DV profile 8.1, 8.4 | Dolby Vision, HDR10 or HLG fallback; `baseLayerOnly` forces the base | `hvc1` + `dvvC`, `SUPPLEMENTAL-CODECS` | DV decoder if present, else HEVC base layer [M3] |
-| other DV (AVC, AV1 P10, 4, 9) | drop the record, play the base layer | `drop` | P10 known to Media3; unsupported profiles are rejected rather than played as HEVC [M2] ⚠ per release |
+| other DV (AVC, AV1 P10, 4, 9) | drop the record, play the base layer | `drop` | P10 known to Media3; unsupported profiles are rejected rather than played as HEVC [M2] ⚠ per release. Stage 1: no matching decoder and display means the server, rule 4b |
 
 `DvheStn` = P5 and `DvheDtb` = P7 are confirmed by [M3]; other profile-to-constant mappings ⚠.
 
@@ -242,7 +243,7 @@ and from `fair` heat (a 4K 32BGRA copy is about 33 MB a frame). A 10-minute 4K p
 - **Per-device Dolby Vision and HDR**: decoder lists differ by SoC and firmware (a TV with no P7 decoder mis-routed P7 [M3]); no single `eligibleForHDRPlayback`.
 - **Hardware flag is self-reported** [A1]; emulators carry no representative hardware codecs ⚠, so device sheets stay manual.
 - **`@UnstableApi`** on inspector, effects, preload: pin the version (D4).
-- **No AVI, ASF/WMV, RealMedia** [M1]; no AirPlay (Cast is separate work).
+- **No ASF/WMV, RealMedia** [M1] (AVI is read: `AviExtractor` is in the default factory of 1.11.1, found in stage 1); no AirPlay (Cast is separate work).
 - **Native code** must be 16 KB page-aligned for Play; NDK r28 or newer does it by default [A7].
 
 ### 3.1 Device-flexible by rule; target devices
@@ -253,9 +254,9 @@ display HDR types and modes, `AudioCapabilities` and passthrough, GPU and NPU av
 All decisions (2.2 route, 2.3 verdicts, 2.5 audio, enhancement) are pure functions of that snapshot. **No device-name
 checks**; `Build.MODEL` is only logged in `hw-id`. A weak device degrades by a fixed ladder: enhancement off, then a
 lower enhancement rung, then software-only video allowed only below the rule 5 limit, then server transcode; audio
-goes passthrough, platform decoder, FFmpeg decoder, server. The stage 1 snapshots of both devices below are
-committed as `shared/devices/*.json` and replayed by the route-planner vectors, next to a synthetic weak and a
-synthetic strong snapshot, so "works on any device" is a test, not a promise.
+goes passthrough, platform decoder, FFmpeg decoder, server. The stage 1 snapshots of both devices are in
+`shared/route-vectors.json`, built from the facts below and marked provisional until the device reports replace them
+(stage 2); the route vectors replay them next to a synthetic weak and a synthetic strong snapshot, so "works on any device" is a test, not a promise.
 
 **Enhance-picture rungs (P, same names on both platforms).** `off`, `scale` (single-pass spatial upscaler),
 `shader` (heavier GPU filter), `neural` (ML super resolution). The rung comes from the snapshot, a short first-use
@@ -302,10 +303,10 @@ not in any branch readable when this was written ⚠, so these rows state only w
 
 ```
 Package.swift  Sources/  Tests/  scripts/  .github/   unchanged, repo root
-docs/ENGINE.md  docs/PLATFORMS.md  docs/ANDROID.md (stage 1)
-android/                Gradle: :engine (Kotlin), :native (NDK, optional), :sample
-shared/fixtures/        media + manifest.json (expected probe, route, audio plan, cue times)
-shared/vectors/         JSON golden vectors for the pure functions
+docs/ENGINE.md  docs/PLATFORMS.md  android/README.md
+android/                Gradle: :videoengine (Kotlin library), :sample; :native (NDK) arrives with FFmpeg in stage 3
+shared/fixtures/        manifest.json (what ffprobe reports for Tests/VideoEngineTests/Fixtures); new clips later
+shared/route-vectors.json  platform-neutral route vectors and the device snapshots they run on (stage 1); more vector files later
 scripts/android/        build-ffmpeg.sh (LGPL .so per ABI), verify scripts
 ```
 
@@ -319,7 +320,7 @@ SwiftPM, which reads `Sources/*` and `Tests/*`.
 ### Fixtures and vectors
 
 Existing: `Tests/VideoEngineTests/Fixtures/` (`h264-aac.mkv`, `h264-aac-60s.mkv`, `hevc10-opus-srt.mkv`);
-keep them, and let Android read them there (`sourceSets.androidTest.assets.srcDir`). New 1 to 3 s clips go
+keep them, and Android reads them there: a Gradle copy task puts them into the sample's assets, so no binary is duplicated (`sourceSets.androidTest.assets.srcDir` stays an option for instrumented tests). New 1 to 3 s clips go
 to `shared/fixtures/`, each in `manifest.json` with expected facts, route per device profile, audio action
 and cue times:
 
@@ -355,6 +356,8 @@ involved. Use `paths:` filters: `android/**` never triggers the Apple FFmpeg bui
 | `android-sample` | assemble the sample APK, upload it |
 | `android-emu` | emulator smoke on KVM (needs the udev rule on 2-vCPU runners [G2]); probe and route vectors only, **no hardware verdicts** |
 | manual | real-device sheets on the Xiaomi Pad 8 Pro and the Onn 4K Pro: P1 to P4, H1 to H4, F1 to F12, T1 to T9, S1 to S10 |
+
+Stage 1 ships one job, `android` (`.github/workflows/android.yml`), instead of the four above: JVM tests, lint, the release AAR and the sample debug APK, uploaded as the artifacts `videoengine-aar` and `videoengine-sample-debug-apk`. It starts only for `android/**`, `shared/**` and its own file. `shared/**` does not start the Swift workflows until Swift adopts the vectors; that change adds the path to their filters. Edits to `Tests/VideoEngineTests/Fixtures` alone do not start it either; `shared/fixtures/manifest.json` does.
 
 ## 5. Android API sketch (Kotlin, mirrors the Swift names)
 
@@ -411,11 +414,25 @@ Media3's `DataSource`; the OkHttp-based factory must keep the same range semanti
 | Stage | Scope | Exit gate |
 |---|---|---|
 | 0 | contract merged; `shared/vectors` for the existing pure functions, read by Swift tests; Android CI skeleton | vectors green in `swift test` |
-| 1 | `android/` Gradle build; **on the Xiaomi Pad 8 Pro**: probe, route decision and playback of every shared fixture in `:sample` (direct play, native Matroska, text subtitles); records the tablet's `hw-*` snapshot as `shared/devices/xiaomi-pad-8-pro.json` | fixtures play; probe equals `manifest.json`; P1, P2 on the tablet; DV profile list, Atmos path and `Spatializer` state recorded |
+| 1 | **Built; device reports pending (see "Stage 1 as built").** `android/` Gradle build; **on the Xiaomi Pad 8 Pro**: probe, route decision and playback of every shared fixture in `:sample` (direct play, native Matroska, text subtitles); records the tablet's `hw-*` snapshot as `shared/devices/xiaomi-pad-8-pro.json` | fixtures play; probe equals `manifest.json`; P1, P2 on the tablet; DV profile list, Atmos path and `Spatializer` state recorded |
 | 2 | hardware snapshot and verdicts, diagnostics lines, thermal and power rules, HDR and Dolby Vision rules, the capability ladder; the **Onn 4K Pro** joins (its snapshot recorded, 32-bit build) | H1 to H4, F1 to F12 on both; route vectors replay both snapshots plus a synthetic weak and strong one |
 | 3 | audio policy (passthrough, decoders, FFmpeg extension `.so`), sidecar and bitmap subtitles, PiP | T1 to T7, S1 to S8; passthrough and frame-rate matching on the Onn box |
 | 4 | prewarm, TLS hook, frame extractor, scrub mode; enhance `scale` and `shader` rungs as Media3 GL effects | prewarm and TLS vectors; scrub thumbnails; rung chosen per snapshot, `off` on the box if it misses the frame budget |
 | 5 | shared native module (P7 to 8.1, audio shaping); `neural` rung spike on the tablet (LiteRT, Qualcomm delegate); Media3 `Transformer` for on-device transcode (HDR, DV P8 transmux [M13]); on-device remux for AVI/ASF if wanted | `dovi_tool` byte parity; ML super resolution frame time measured |
+
+### Stage 1 as built
+
+Branch `android-stage1`, not merged, no release. `android/` has the library `:videoengine` and the app `:sample`; `android/README.md` has the build steps and the API. Media3 is pinned to 1.11.1 in the version catalog, min API 29, `compileSdk` 36, package `io.github.nphil.videoengine`, ABIs `arm64-v8a` and `armeabi-v7a` configured. The AAR has no native code until stage 3, so it is the same for both ABIs.
+
+**Shared files.** `shared/route-vectors.json` holds 85 route vectors (every rule 1 to 10 and 4b) and 13 snapshots: the Xiaomi Pad 8 Pro and both Onn 4K Pro generations (provisional, built only from the facts in 3.1), plus synthetic weak and strong snapshots and eight variants of the strong one. `shared/fixtures/manifest.json` holds what ffprobe reports for the three fixtures; the JVM tests run Media3's real Matroska extractor over the files and compare, and the sample's **Check** button does the same on a device. **Swift adopts the same vectors later**: once D2 moves the planner into the engine, a `swift test` reads `shared/route-vectors.json` and replays it through the Swift planner, and that change adds `shared/**` to the Swift workflows' path filters. Stage 1 touches neither Swift code nor those workflows.
+
+**Decided in stage 1** (additive to the text above): rule 4b and the reason `dv-unsupported`; the type check in rule 3; `repackage` only with `canRepackage`; AVI is readable; no `ProbeDepth` (Media3's extractors give the same facts in one pass); decode verdicts are computed from the snapshot (`Hardware` means advertised, not proven; the trial configure is stage 2), their cache key adds the frame-rate bucket and the Dolby Vision profile, and a stream wider than 3840 counts as the 8K size class; AMR and G.711 joined the audio table because the probe emits them; `EnginePlayer.create` builds an ExoPlayer for a snapshot (hardware decoders first, frame-rate matching, optional tunnelling), the `PlaybackSession` of section 5 comes later.
+
+**Provisional until the device reports return:** the Pad's Dolby Vision profile list (`hw-dv`), its Atmos path and `Spatializer` state (`hw-aud`); which Onn generation the owner has; every `Hardware` verdict (advertised, not measured); Dolby Vision profile numbers other than 5 and 7; the HDR10 base layer of profile 8 where the file does not say; the audio decoder rows and the H.264 rows of the device snapshots (assumed, listed in each snapshot's `assumed`).
+
+**Exit gate.** Probe equals `manifest.json`: green in CI. Open until the owner runs the sample on both devices: fixtures play, P1 and P2 on the tablet, and the three recorded items.
+
+**Proposed stage 2.** (1) Store each device report as `shared/devices/<device>.json` and make the vectors replay those instead of the provisional snapshots, next to the synthetic weak and strong ones. (2) Trial-configure verdicts, so `Hardware` is proven and cached by key. (3) Thermal and power rules that act on `shouldShedOptionalWork`, the HDR and Dolby Vision rules checked against the reports, the capability ladder, `hw-state` lines. (4) The Onn 4K Pro joins with its 32-bit build. (5) H1 to H4 and F1 to F12 on both devices.
 
 ## 6. Open decisions
 
@@ -428,13 +445,13 @@ Media3's `DataSource`; the OkHttp-based factory must keep the same range semanti
 | D5 | Where Rust or C enters | **Kotlin plus FFmpeg `.so` through stage 4.** Add a shared native module (C ABI, Android first) only for the P7 to 8.1 rewrite or audio shaping DSP; Apple keeps its Swift version until it passes the same vectors |
 | D6 | Real devices for the manual sheets | **Resolved: both named.** Xiaomi Pad 8 Pro (primary, from stage 1) and Onn 4K Pro (TV box: passthrough, refresh-rate matching, tunnelling, weak-device degradation, from stage 2). Open detail: which Onn generation (2024 S905X4 or 2026 S905X5M); stage 1 records it |
 | D7 | Android distribution | **AAR as a release asset with a checksum**, as the XCFrameworks are; Maven later only if wanted |
-| D8 | Containers Media3 cannot read (AVI, ASF/WMV) | **Server transcode** through stage 4; on-device FFmpeg remux only on demand |
+| D8 | Containers Media3 cannot read (ASF/WMV, RealMedia, MXF; AVI is readable) | **Server transcode** through stage 4; on-device FFmpeg remux only on demand |
 | D9 | Package and artifact id | `io.github.nphil.videoengine`; confirm |
 | D10 | HDR source on an SDR display | **Server transcode** on both until a device test proves the platform's playback tone mapping |
 
 ## Sources
 
-- **M1** [supported formats](https://developer.android.com/media/media3/exoplayer/supported-formats): containers (Matroska yes, AVI no), decoder extensions, subtitle formats, HDR note.
+- **M1** [supported formats](https://developer.android.com/media/media3/exoplayer/supported-formats): containers (Matroska yes; AVI: `AviExtractor` is registered in 1.11.1's `DefaultExtractorsFactory`, checked in stage 1), decoder extensions, subtitle formats, HDR note.
 - **M2** [Media3 release notes](https://github.com/androidx/media/blob/main/RELEASENOTES.md): 1.11.1 (2026-09-10) stable; P7 HEVC fallback in 1.12.0-beta01; DV P10, VobSub, preload, frame extractor history.
 - **M3** [issue 3486](https://github.com/androidx/media/issues/3486): P7 sent to a P5 decoder on a DV TV, fixed by fallback; decoder names.
 - **M4** [AudioCapabilities](https://developer.android.com/reference/androidx/media3/exoplayer/audio/AudioCapabilities): passthrough check. **M5** [track selection](https://developer.android.com/media/media3/exoplayer/track-selection) and **M6** [battery](https://developer.android.com/media/media3/exoplayer/battery-consumption): tunnelling, offload.
