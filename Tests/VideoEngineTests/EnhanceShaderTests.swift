@@ -186,19 +186,6 @@ struct EnhanceShaderTests {
     }
 }
 
-// The kernels' parameter structs as the shader declares them.
-private struct ComposeParameters {
-    var sharpen: Float
-    var deband: Float
-    var debandRadius: Float
-    var debandThreshold: Float
-    var frame: UInt32
-}
-
-private struct LineArtParameters {
-    var strength: Float
-}
-
 /// A Metal device with the enhancer's kernels compiled, and the few helpers the tests share.
 private struct Kit {
     struct Failure: Error, CustomStringConvertible {

@@ -422,28 +422,55 @@ code taken.
 ### Enhance picture (v3.0.0+)
 
 Opt-in, real-time picture improvement for SDR video, run on the device's GPU while the video plays: a scaler, a
-contrast-adaptive sharpen and a deband, each optional and changeable while playing (`EnhanceOptions`; every stage is
-off by default). Design informed by AetherEngine's documented upscaling feature; no code taken.
+contrast-adaptive sharpen and a deband, each optional and changeable while playing. Every stage is off by default.
+Design informed by AetherEngine's documented upscaling feature; no code taken. Each Apple API named here was checked
+against Apple's iOS 27 documentation. CI builds the pipeline and tests the kernels and the bookkeeping; nothing has
+run on a device yet, so the device sheet below is open.
 
-**Status on this branch.** In: the public option and state types, the decision logic (`EnhanceMath.decide`,
-`EnhanceLadder`, `EnhanceGovernor`), the Metal kernels (`EnhanceShaders`) and their tests. Not in yet: the part that
-runs them against a player (`PictureEnhancer`: display link, GPU context, scaler rungs, output layer). What follows is
-the design that part is built to. Each Apple API named here was checked against Apple's iOS 27 documentation; nothing
-has run on a device.
+API (`PictureEnhancer` is `@MainActor`):
+
+- `EnhanceOptions(upscaler:sharpen:deband:)`: `upscaler` is `.off`, `.automatic` or `.lineArt`; `sharpen` and `deband`
+  are 0...1 and clamped. `EnhanceOptions.off` is the default; `isEnabled` says whether anything is on.
+- `PictureEnhancer(options:logger:power:)` with:
+  - `layer: AVSampleBufferDisplayLayer`: shows the enhanced picture, and is empty whenever the chain steps aside.
+  - `options`: assign a new value at any time.
+  - `displaySize: CGSize`: the pixels the picture covers on screen.
+  - `state: EnhanceState` and `updates() -> AsyncStream<EnhanceState>` (the current state first): `.idle`,
+    `.running(EnhancePlan)` (scaler, source and output size, sharpen, deband), `.paused(.powerSaving | .droppedFrames)`
+    and `.unavailable(.highDynamicRange | .noGPU | .unsupportedPicture)`.
+  - `attach(to: AVPlayerItem)`, `detach()` (call it before releasing the enhancer) and `setActive(_:)`.
+  - `power`: reports the thermal state and Low Power Mode; the default reads the system's.
+- Diagnostics, through `EngineLogger` and kept for `EngineDiagnostics.report()`: `enhance-gpu`, `enhance-probe` (per
+  scaler: result, milliseconds, output size, scale factor, pixel formats, model status, or why it failed),
+  `enhance-plan` (every state change), `enhance-perf` (every 120 frames: shown, late, skipped and failed frames, GPU
+  time average and maximum), `enhance-demote`, `enhance-pause`, `enhance-resume` and `enhance-error`.
+
+```swift
+let enhancer = PictureEnhancer(options: EnhanceOptions(upscaler: .automatic, sharpen: 0.3), logger: logger)
+enhancer.layer.frame = playerLayer.frame          // same frame and videoGravity as the player's layer
+enhancer.layer.videoGravity = playerLayer.videoGravity
+playerLayer.superlayer?.insertSublayer(enhancer.layer, above: playerLayer)
+enhancer.displaySize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+enhancer.attach(to: item)
+// when playback pauses or the app backgrounds: enhancer.setActive(false); when it plays again: setActive(true)
+```
+
+How it works:
 
 - The app owns the player. It attaches the enhancer to its `AVPlayerItem` and puts the enhancer's layer above its
-  player layer. The enhancer pulls frames with an `AVPlayerItemVideoOutput` on a display link, runs the chain and draws
-  the result in its own layer. AVPlayer keeps audio, sync and seeking, and the plain picture shows underneath whenever
-  the chain steps aside.
+  player layer. The enhancer pulls frames with an `AVPlayerItemVideoOutput` on a display link (24 to 60 Hz while frames
+  come, a few times a second otherwise), runs the chain and draws the result in its own layer. AVPlayer keeps audio,
+  sync and seeking, and the plain picture shows underneath whenever the chain steps aside.
 - The chain: NV12 frame to BGRA with the video's own matrix, the scaler, then one pass that debands, sharpens and
   dithers into the buffer the layer shows. Memory is bounded: pooled IOSurface buffers shared with Metal without a
   copy, at most two frames in flight, nothing large allocated per frame, output capped at 2560x1440.
-- Gates, in order. Nothing asked for, or no frame yet: idle. No GPU, HDR or Dolby Vision, or a cropped picture:
-  unavailable, and the plain picture plays. Low Power Mode or thermal `serious`: paused. About a quarter of recent
-  frames missed: step down one scaler, then pause for 10, 20 and 40 s, then stay off; a pause ends by itself. A source
-  that is not at least 1.1x smaller than the display skips the scaler. The video output is removed whenever the chain
-  is not running, and the app removes it with `setActive(false)` in the background. The gate here is `serious`, where
-  the app rule above says `fair`: pass a stricter `power` closure for that.
+- Gates, in order. Nothing asked for, or no frame yet: idle. No GPU, HDR or Dolby Vision, or a picture that is
+  cropped, turned by the player or not 8-bit 4:2:0: unavailable, and the plain picture plays. Low Power Mode or
+  thermal `serious`: paused. About a quarter of recent frames missed: step down one scaler, then pause for 10, 20 and
+  40 s, then stay off; a pause ends by itself. A source that is not at least 1.1x smaller than the display skips the
+  scaler. The player's frames are taken only while the chain runs, and while it waits for the first frame to learn
+  what the picture is; the app also stops them with `setActive(false)`. The gate here is `serious`, where the app rule
+  above says `fair`: pass a stricter `power` closure for that.
 
 | Option | Scaler, tried best first | Runs on | iOS | Picked when |
 |---|---|---|---|---|
@@ -453,11 +480,13 @@ has run on a device.
 | | Lanczos-3, the engine's own kernels | GPU | 27+ (package floor) | always: the floor |
 | `.lineArt` | the engine's own line-art scaler: Lanczos-3, then edge steepening | GPU | 27+ (package floor) | always; steps down to Lanczos |
 
-Each scaler is probed on the device when first needed, the floor first so a picture shows at once, then the better ones
-one at a time. The result, the formats and scale factors the device reports and the time taken go to diagnostics as
-`enhance-probe`; a scaler that fails to start, or cannot keep up, is skipped for the rest of the item. The engine never
-starts Apple's model download: `VTSuperResolutionScalerConfiguration.configurationModelStatus` says whether it is
-there, and the app downloads it with the user's knowledge.
+Each scaler is set up off the main thread when first needed, the floor first so a picture shows at once, then the
+better ones one at a time. The result, the formats and scale factors the device reports and the time taken go to
+diagnostics as `enhance-probe`. A scaler that fails to start or fails on a frame is dropped and the next one down
+takes over; one that cannot keep up makes the chain step down. Both last until the item, the picture size or the
+display size changes. The engine never starts Apple's model download:
+`VTSuperResolutionScalerConfiguration.configurationModelStatus` says whether the model is there, and the app
+downloads it with the user's knowledge.
 
 **Output layer: `AVSampleBufferDisplayLayer`.** Picture in Picture can take frames from this layer
 (`AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer:playbackDelegate:)`); a `CAMetalLayer` cannot do
@@ -466,9 +495,10 @@ enqueued through `sampleBufferRenderer`. To wire Picture in Picture the app can 
 it from its plain `AVPlayerLayer` with `ContentSource(playerLayer:)` and call `setActive(false)` when Picture in
 Picture or the background starts, so the window shows the plain picture; or (2) use the enhancer's layer with a
 playback delegate that forwards play, pause, skipping and the time range to the AVPlayer. Neither is verified on a
-device (E2). Also for the app: give both layers the same frame and `videoGravity`, tell the enhancer the picture
-area in pixels (`setDisplaySize`; unknown means no upscale), and do not attach clips rotated by their
-`preferredTransform` (E3).
+device (E2). Also for the app: give both layers the same frame and `videoGravity`, and tell the enhancer the picture
+area in pixels (`displaySize`; empty means the layer's bounds times its `contentsScale`, and an unknown size means no
+upscale). A clip the player turns by its `preferredTransform` is recognised from the player item's `presentationSize`
+and keeps the plain picture (E3).
 
 Looked at and not used:
 
@@ -500,6 +530,7 @@ third-party shader source is used, so there are no licence notices to add.
   screen or bug report: `perf-remux` (start-up stages per run), `perf-run`
   (bytes, segments, lead, free memory, thermal state per run), `hw-id` to
   `hw-eng` (first snapshot), `hw-state` (on change) and `hw-probe` (per probe).
+- The enhancer's `enhance-*` lines are listed under Enhance picture.
 - Each stage is also an `os_signpost` interval, subsystem `VideoEngine`,
   category `stages`, for Instruments.
 
@@ -603,7 +634,7 @@ while playing, then seek twice.
 
 | ID | Steps | Pass |
 |---|---|---|
-| E1 | 720p SDR on a 1179x2556 phone, `.automatic`, 2 minutes; then 1080p on the same screen | picture stays in step with the audio (within one frame); `enhance-probe` lines show each scaler's result and the one in use; the 1080p run skips the scaler |
+| E1 | 720p SDR on a 1179x2556 phone, `.automatic`, 2 minutes; then 1080p on the same screen | picture stays in step with the audio (within one frame); `enhance-probe` lines show each scaler's result and `enhance-plan` the one in use; the 1080p run skips the scaler |
 | E2 | Picture in Picture from the app's player layer while the enhancer runs; then with `ContentSource(sampleBufferDisplayLayer:)` | the window opens and keeps playing; coming back restores the enhanced picture with no frozen frame |
 | E3 | rotate the device; play a clip with a rotation transform | the enhancer's layer follows the player layer; the rotated clip is not shown sideways |
 | E4 | 10 minutes at 60 fps with every stage on, then with the device warmed to `serious` and with Low Power Mode on | audio never breaks; `enhance-perf` shows late and skipped frames; heat or Low Power Mode pauses the chain within a second and the plain picture shows; it resumes when clear |
