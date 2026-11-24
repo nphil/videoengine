@@ -41,12 +41,13 @@ final class RemuxRun: Sendable {
     }
 
     var progress: RemuxProgress {
-        let (progress, source) = state.withLock { ($0.progress, $0.source) }
+        let (progress, source, complete) = state.withLock { ($0.progress, $0.source, $0.complete) }
         var current = progress
         current.sourceBytesPerSecond = source?.bytesPerSecond
         current.sourceLatency = source?.latency
         current.isFetching = source?.isFetching ?? false
         current.isReconnecting = source?.isReconnecting ?? false
+        current.isFinished = complete
         return current
     }
     var bytesWritten: Int64 { state.withLock { $0.progress.bytesWritten } }
