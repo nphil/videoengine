@@ -103,7 +103,6 @@ public final class HardwareDecodeProbe: Sendable {
         return (.unknown, nil)
         #else
         guard VTIsHardwareDecodeSupported(stream.codecType) else { return (.unsupported, nil) }
-        guard #available(iOS 17.0, *) else { return (.unknown, nil) }
         var extensions: [CFString: Any] = [:]
         if !stream.configurationAtoms.isEmpty {
             extensions[kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms] = stream.configurationAtoms
@@ -477,7 +476,6 @@ public final class LiveHardwareCapabilityProvider: HardwareCapabilityProviding {
             #if targetEnvironment(simulator)
             return .unknown
             #else
-            guard #available(iOS 17.4, *) else { return .unknown }
             let specification = [kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true] as CFDictionary
             var id: CFString?
             var properties: CFDictionary?
@@ -490,7 +488,7 @@ public final class LiveHardwareCapabilityProvider: HardwareCapabilityProviding {
         }
         let hevc = gate(kCMVideoCodecType_HEVC)
         let decode = HardwareCapabilities.Decode(
-            // Every device iOS 16 runs on decodes HEVC Main10 wherever it decodes HEVC.
+            // Every device this iOS floor supports decodes HEVC Main10 wherever it decodes HEVC.
             h264: gate(kCMVideoCodecType_H264), hevc: hevc, hevc10: hevc,
             dolbyVisionHEVC: gate(kCMVideoCodecType_DolbyVisionHEVC), av1: gate(kCMVideoCodecType_AV1),
             vp9: gate(kCMVideoCodecType_VP9), mpeg2: gate(kCMVideoCodecType_MPEG2Video),

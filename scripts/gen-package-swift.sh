@@ -102,7 +102,8 @@ import PackageDescription
 
 let package = Package(
     name: "VideoEngine",
-    platforms: [.iOS(.v26)],
+    // iOS 27 or later. The .v27 shorthand needs tools version 6.4, so the version is a string.
+    platforms: [.iOS("27.0")],
     products: [
         .library(
             name: "FFmpeg",

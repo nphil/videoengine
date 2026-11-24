@@ -22,7 +22,7 @@ Six static-library XCFrameworks, each with an **arm64 iOS-device** slice and an
 | `libswscale.xcframework`    | `Libswscale`    |
 | `libswresample.xcframework` | `Libswresample` |
 
-**FFmpeg version:** `n9.0.2` · **Min iOS:** 26.0 · **License:** LGPL-2.1+
+**FFmpeg version:** `n9.0.2` · **Min iOS:** 27.0 (the Swift package; the prebuilt XCFrameworks are linked for 26.0) · **License:** LGPL-2.1+
 
 ### Enabled capabilities (comprehensive LGPL build, v1.1.0+)
 

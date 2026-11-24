@@ -2,7 +2,7 @@
 
 The Swift layer over the FFmpeg binaries. One
 library product, `VideoEngine`, with two targets, both Swift 6 with strict
-concurrency, iOS 26 and later:
+concurrency, iOS 27 and later:
 
 - **`LoopbackHLS`**: the 127.0.0.1 HTTP server, fragment index, playlists and
   WebVTT tracks. No FFmpeg dependency.
@@ -419,6 +419,80 @@ code taken.
   and call `SecTrustEvaluateWithError(trust, nil)` for every other host.
 - It is a process-wide setting; set it before the first request.
 
+### Enhance picture (v3.0.0+)
+
+Opt-in, real-time picture improvement for SDR video, run on the device's GPU while the video plays: a scaler, a
+contrast-adaptive sharpen and a deband, each optional and changeable while playing (`EnhanceOptions`; every stage is
+off by default). Design informed by AetherEngine's documented upscaling feature; no code taken.
+
+**Status on this branch.** In: the public option and state types, the decision logic (`EnhanceMath.decide`,
+`EnhanceLadder`, `EnhanceGovernor`), the Metal kernels (`EnhanceShaders`) and their tests. Not in yet: the part that
+runs them against a player (`PictureEnhancer`: display link, GPU context, scaler rungs, output layer). What follows is
+the design that part is built to. Each Apple API named here was checked against Apple's iOS 27 documentation; nothing
+has run on a device.
+
+- The app owns the player. It attaches the enhancer to its `AVPlayerItem` and puts the enhancer's layer above its
+  player layer. The enhancer pulls frames with an `AVPlayerItemVideoOutput` on a display link, runs the chain and draws
+  the result in its own layer. AVPlayer keeps audio, sync and seeking, and the plain picture shows underneath whenever
+  the chain steps aside.
+- The chain: NV12 frame to BGRA with the video's own matrix, the scaler, then one pass that debands, sharpens and
+  dithers into the buffer the layer shows. Memory is bounded: pooled IOSurface buffers shared with Metal without a
+  copy, at most two frames in flight, nothing large allocated per frame, output capped at 2560x1440.
+- Gates, in order. Nothing asked for, or no frame yet: idle. No GPU, HDR or Dolby Vision, or a cropped picture:
+  unavailable, and the plain picture plays. Low Power Mode or thermal `serious`: paused. About a quarter of recent
+  frames missed: step down one scaler, then pause for 10, 20 and 40 s, then stay off; a pause ends by itself. A source
+  that is not at least 1.1x smaller than the display skips the scaler. The video output is removed whenever the chain
+  is not running, and the app removes it with `setActive(false)` in the background. The gate here is `serious`, where
+  the app rule above says `fair`: pass a stricter `power` closure for that.
+
+| Option | Scaler, tried best first | Runs on | iOS | Picked when |
+|---|---|---|---|---|
+| `.automatic` | VideoToolbox super resolution, `VTSuperResolutionScalerConfiguration` | Apple's machine-learning model; Apple does not say which compute unit | 26+ | `isSupported`, a factor from `supportedScaleFactors` fits, its model is already downloaded, BGRA is accepted and the session starts |
+| | VideoToolbox low-latency super resolution, `VTLowLatencySuperResolutionScalerConfiguration` | Apple's real-time machine-learning scaler | 26+ (27 adds 1.5x and size limits) | `isSupported`, a factor from `supportedScaleFactors(frameWidth:frameHeight:)` fits and the frame is within `maximumDimension` and `maximumPixelCount` |
+| | MetalFX spatial scaler, `MTLFXSpatialScaler` | GPU | 16+ | `supportsDevice` |
+| | Lanczos-3, the engine's own kernels | GPU | 27+ (package floor) | always: the floor |
+| `.lineArt` | the engine's own line-art scaler: Lanczos-3, then edge steepening | GPU | 27+ (package floor) | always; steps down to Lanczos |
+
+Each scaler is probed on the device when first needed, the floor first so a picture shows at once, then the better ones
+one at a time. The result, the formats and scale factors the device reports and the time taken go to diagnostics as
+`enhance-probe`; a scaler that fails to start, or cannot keep up, is skipped for the rest of the item. The engine never
+starts Apple's model download: `VTSuperResolutionScalerConfiguration.configurationModelStatus` says whether it is
+there, and the app downloads it with the user's knowledge.
+
+**Output layer: `AVSampleBufferDisplayLayer`.** Picture in Picture can take frames from this layer
+(`AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer:playbackDelegate:)`); a `CAMetalLayer` cannot do
+Picture in Picture at all. The chain's BGRA buffers are wrapped in sample buffers marked display-immediately and
+enqueued through `sampleBufferRenderer`. To wire Picture in Picture the app can either (1, recommended) keep building
+it from its plain `AVPlayerLayer` with `ContentSource(playerLayer:)` and call `setActive(false)` when Picture in
+Picture or the background starts, so the window shows the plain picture; or (2) use the enhancer's layer with a
+playback delegate that forwards play, pause, skipping and the time range to the AVPlayer. Neither is verified on a
+device (E2). Also for the app: give both layers the same frame and `videoGravity`, tell the enhancer the picture
+area in pixels (`setDisplaySize`; unknown means no upscale), and do not attach clips rotated by their
+`preferredTransform` (E3).
+
+Looked at and not used:
+
+- MetalFX temporal, denoised and frame-interpolation scalers, and Metal 4 `MTL4FXSpatialScaler`: they need game data
+  (depth, motion) or Metal 4, where the classic spatial scaler works on every supported device.
+- VideoToolbox frame-rate conversion, low-latency frame interpolation, motion blur, optical flow and temporal noise
+  filter: outside the three stages.
+- Core AI, Core ML and MPSGraph upscalers: they need a model the app supplies; none ships in the engine.
+- `VTPixelTransferSession`, `MPSImageLanczosScale` and Core Image scaling: no quality gain over the engine's own
+  Lanczos, which keeps one pipeline and can be tested on small textures.
+- `AVPlayerVideoOutput` (built for stereo content) and `AVPlayerLayer.displayedPixelBuffer()` (deprecated in iOS 27).
+- A switch on AVPlayer or `AVPlayerLayer` that enhances for you: none exists. Apple's super-resolution scalers work on
+  pixel buffers the app feeds in and draws itself.
+- `AVSampleBufferVideoRenderer.recommendedPixelBufferAttributes`: the engine's IOSurface BGRA buffers display
+  directly; revisit if device logs show a copy.
+- NV12 fed straight to the VideoToolbox scalers: Apple's pages do not list the pixel formats they take, so the engine
+  feeds BGRA and checks `supportedPixelFormats`; try NV12 only if device logs show BGRA refused.
+- `AVSampleBufferVideoRenderer.Receiver` (iOS 27): the documentation does not say how to get one, so the engine uses
+  the renderer's `enqueue` and `flush`, which iOS 27 still documents (marked deprecated). Switch when the gap closes.
+
+Credits: the sharpen follows the published idea of contrast-adaptive sharpening, the line-art pass the published
+shock-filter and Anime4K-style descriptions of edge steepening, and the scaler the textbook Lanczos filter. No
+third-party shader source is used, so there are no licence notices to add.
+
 ### Diagnostics
 
 - `EngineLogger` carries engine events to the app's log; `.silent` drops them.
@@ -524,3 +598,16 @@ while playing, then seek twice.
 | S7 | MKV VobSub with and without palette | pictures shown; none without a palette |
 | S8 | a 12 s GOP file with long cues | long cues repeat across slots without flicker; the subtitle playlist may trail the video |
 | S9 | AirPlay with the loopback URL | expected unreachable: the app falls back |
+
+### Enhance picture
+
+| ID | Steps | Pass |
+|---|---|---|
+| E1 | 720p SDR on a 1179x2556 phone, `.automatic`, 2 minutes; then 1080p on the same screen | picture stays in step with the audio (within one frame); `enhance-probe` lines show each scaler's result and the one in use; the 1080p run skips the scaler |
+| E2 | Picture in Picture from the app's player layer while the enhancer runs; then with `ContentSource(sampleBufferDisplayLayer:)` | the window opens and keeps playing; coming back restores the enhanced picture with no frozen frame |
+| E3 | rotate the device; play a clip with a rotation transform | the enhancer's layer follows the player layer; the rotated clip is not shown sideways |
+| E4 | 10 minutes at 60 fps with every stage on, then with the device warmed to `serious` and with Low Power Mode on | audio never breaks; `enhance-perf` shows late and skipped frames; heat or Low Power Mode pauses the chain within a second and the plain picture shows; it resumes when clear |
+| E5 | `.automatic` before and after the super-resolution model is downloaded | not downloaded: a lower scaler runs and `enhance-probe` says why; the engine never starts the download |
+| E6 | each device class: `enhance-probe` for `vt-super-resolution` and `vt-low-latency` | `isSupported`, scale factors, pixel formats and start-up time recorded; BGRA accepted, otherwise the scaler is skipped with the reason |
+| E7 | HDR10 and Dolby Vision files with the chain on; pause, resume, seek, background | `unavailable(highDynamicRange)` and no change to the picture; the plain picture is back at once after a seek; the background stops GPU work with no error |
+| E8 | 30 minutes at 1080p scaled to 1440p, Instruments allocations | memory flat after the first minute; buffer counts stay within the pool limits; detach frees the pools |
