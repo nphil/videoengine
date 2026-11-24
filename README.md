@@ -86,6 +86,13 @@ concurrency):
   `actualSeconds`, `bytesRead`) for
   scrub thumbnails, reading through its own `ByteRangeSource` independent of
   playback and cancellable by task cancellation.
+- `RemuxOptions.bitmapSubtitleText` (v2.2.0+, additive, off by default) also
+  offers each picture subtitle stream (PGS, DVB, VobSub) as a WebVTT rendition,
+  "<name> (text from picture)", whose cues are the text Apple's Vision
+  framework reads from the pictures, so subtitles survive Picture in Picture
+  and AirPlay. Lossy by design; the overlay track is unchanged. Design after
+  AetherEngine's documented feature (LGPL-3.0,
+  github.com/superuser404notfound/AetherEngine); no code taken.
 - Logging goes through an `EngineLogger` the app supplies.
 
 The full API, adoption steps and device test sheets are in

@@ -28,6 +28,12 @@ public struct RemuxOptions: Sendable {
     public var audio = AudioPolicy()
     /// Sidecar text subtitles (read with `SubtitleFile.read`), offered next to the source's own.
     public var sidecarSubtitles: [SidecarSubtitles] = []
+    /// Also offers each picture subtitle stream (PGS, DVB, VobSub) as a WebVTT rendition named
+    /// "<name> (text from picture)", so AVPlayer shows it in Picture in Picture and over AirPlay, where the
+    /// app's own overlay is not drawn. The cues are the text Vision reads from the pictures, with their
+    /// start and end times: lossy, and read in the background at utility priority, so a rendition's slots
+    /// are listed later than the video. The `overlay` track is unchanged. Off by default. Added in v2.2.0.
+    public var bitmapSubtitleText = false
     /// MP4 muxer options; they override the run's own (`strict`, `use_editlist`).
     public var muxerOptions: [String: String] = [:]
     /// Added to the run's movflags: `frag_keyframe+empty_moov+default_base_moof`, with `delay_moov` when
