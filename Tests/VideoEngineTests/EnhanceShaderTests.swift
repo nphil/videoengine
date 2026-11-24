@@ -7,6 +7,31 @@ private func hasMetal() -> Bool { MTLCreateSystemDefaultDevice() != nil }
 
 private let needsMetal: Comment = "needs a Metal device; a simulator without one skips these, and the device sheet (ENGINE.md, E1-E8) covers the kernels then"
 
+/// Whether an 8-bit channel is within `tolerance` levels of the value it should have.
+private func isNear(_ got: UInt8, _ wanted: Int, within tolerance: Int) -> Bool {
+    let difference = Int(got) - wanted
+    return difference <= tolerance && difference >= -tolerance
+}
+
+/// A value in 0...1 as the 8-bit level it is stored as.
+private func eightBitLevel(_ value: Float) -> Int {
+    let clamped = min(max(value, 0), 1)
+    return Int((clamped * 255).rounded())
+}
+
+/// `pixels` BGRA pixels that are all one opaque colour.
+private func flatBGRA(pixels: Int, blue: UInt8, green: UInt8, red: UInt8) -> [UInt8] {
+    var bytes: [UInt8] = []
+    bytes.reserveCapacity(pixels * 4)
+    for _ in 0..<pixels {
+        bytes.append(blue)
+        bytes.append(green)
+        bytes.append(red)
+        bytes.append(255)
+    }
+    return bytes
+}
+
 /// The enhancer's kernels on tiny textures: that the Metal compiler accepts the source, and that each kernel does the
 /// plain thing it promises on pictures whose right answer is known. Speed, memory and Apple's own scalers need a phone.
 struct EnhanceShaderTests {
@@ -23,22 +48,31 @@ struct EnhanceShaderTests {
     func ingestMatchesTheCPUArithmetic() throws {
         let kit = try Kit()
         let luma = try kit.texture(.r8Unorm, 8, 8, bytes: [UInt8](repeating: 120, count: 64))
-        let chromaBytes: [UInt8] = (0..<16).flatMap { _ -> [UInt8] in [100, 160] }
+        var chromaBytes: [UInt8] = []
+        for _ in 0..<16 {
+            chromaBytes.append(100)
+            chromaBytes.append(160)
+        }
         let chroma = try kit.texture(.rg8Unorm, 4, 4, bytes: chromaBytes)
         let output = try kit.texture(.bgra8Unorm, 8, 8)
         let coefficients = IngestCoefficients(matrix: .bt709, fullRange: false)
-        try kit.run(kit.pipeline("ingest_nv12"), width: 8, height: 8) { encoder in
+        let pipeline = try kit.pipeline("ingest_nv12")
+        try kit.run(pipeline, width: 8, height: 8) { encoder in
             encoder.setTexture(luma, index: 0)
             encoder.setTexture(chroma, index: 1)
             encoder.setTexture(output, index: 2)
             Kit.set(encoder, coefficients, index: 0)
         }
-        let expected = coefficients.rgb(y: 120 / 255, cb: 100 / 255, cr: 160 / 255)
+        let expected = coefficients.rgb(y: 120.0 / 255.0, cb: 100.0 / 255.0, cr: 160.0 / 255.0)
+        let wantedRed = eightBitLevel(expected.r)
+        let wantedGreen = eightBitLevel(expected.g)
+        let wantedBlue = eightBitLevel(expected.b)
         let pixels = kit.bytes(of: output, bytesPerPixel: 4)
+        #expect(pixels.count == 8 * 8 * 4)
         for start in stride(from: 0, to: pixels.count, by: 4) {
-            #expect(abs(Int(pixels[start + 2]) - Self.level(expected.r)) <= 2)
-            #expect(abs(Int(pixels[start + 1]) - Self.level(expected.g)) <= 2)
-            #expect(abs(Int(pixels[start]) - Self.level(expected.b)) <= 2)
+            #expect(isNear(pixels[start + 2], wantedRed, within: 2))
+            #expect(isNear(pixels[start + 1], wantedGreen, within: 2))
+            #expect(isNear(pixels[start], wantedBlue, within: 2))
             #expect(pixels[start + 3] == 255)
         }
     }
@@ -46,13 +80,18 @@ struct EnhanceShaderTests {
     @Test(.enabled(if: hasMetal(), needsMetal))
     func composeWithEveryStageOffCopiesThePicture() throws {
         let kit = try Kit()
-        let picture: [UInt8] = (0..<36).flatMap { index -> [UInt8] in
-            [UInt8((index * 7) % 256), UInt8((index * 13) % 256), UInt8((index * 29) % 256), 255]
+        var picture: [UInt8] = []
+        for index in 0..<36 {
+            picture.append(UInt8(truncatingIfNeeded: index * 7))
+            picture.append(UInt8(truncatingIfNeeded: index * 13))
+            picture.append(UInt8(truncatingIfNeeded: index * 29))
+            picture.append(255)
         }
         let input = try kit.texture(.bgra8Unorm, 6, 6, bytes: picture)
         let output = try kit.texture(.bgra8Unorm, 6, 6)
         let parameters = ComposeParameters(sharpen: 0, deband: 0, debandRadius: 8, debandThreshold: 0.02, frame: 0)
-        try kit.run(kit.pipeline("compose"), width: 6, height: 6) { encoder in
+        let pipeline = try kit.pipeline("compose")
+        try kit.run(pipeline, width: 6, height: 6) { encoder in
             encoder.setTexture(input, index: 0)
             encoder.setTexture(output, index: 1)
             Kit.set(encoder, parameters, index: 0)
@@ -60,49 +99,58 @@ struct EnhanceShaderTests {
         let result = kit.bytes(of: output, bytesPerPixel: 4)
         #expect(result.count == picture.count)
         for (got, wanted) in zip(result, picture) {
-            #expect(abs(Int(got) - Int(wanted)) <= 1)
+            #expect(isNear(got, Int(wanted), within: 1))
         }
     }
 
     @Test(.enabled(if: hasMetal(), needsMetal))
     func debandAndSharpenLeaveAFlatPictureFlat() throws {
         let kit = try Kit()
-        let flat: [UInt8] = (0..<256).flatMap { _ -> [UInt8] in [200, 140, 90, 255] }
+        let flat = flatBGRA(pixels: 256, blue: 200, green: 140, red: 90)
         let input = try kit.texture(.bgra8Unorm, 16, 16, bytes: flat)
         let output = try kit.texture(.bgra8Unorm, 16, 16)
-        let parameters = ComposeParameters(
-            sharpen: 1, deband: 1, debandRadius: EnhanceMath.debandRadius(1, scale: 2),
-            debandThreshold: EnhanceMath.debandThreshold(1), frame: 3
-        )
-        try kit.run(kit.pipeline("compose"), width: 16, height: 16) { encoder in
+        let radius = EnhanceMath.debandRadius(1, scale: 2)
+        let threshold = EnhanceMath.debandThreshold(1)
+        let parameters = ComposeParameters(sharpen: 1, deband: 1, debandRadius: radius, debandThreshold: threshold, frame: 3)
+        let pipeline = try kit.pipeline("compose")
+        try kit.run(pipeline, width: 16, height: 16) { encoder in
             encoder.setTexture(input, index: 0)
             encoder.setTexture(output, index: 1)
             Kit.set(encoder, parameters, index: 0)
         }
         // The dither moves a value by one step at most, and rounding by another.
-        for (got, wanted) in zip(kit.bytes(of: output, bytesPerPixel: 4), flat) {
-            #expect(abs(Int(got) - Int(wanted)) <= 2)
+        let result = kit.bytes(of: output, bytesPerPixel: 4)
+        #expect(result.count == flat.count)
+        for (got, wanted) in zip(result, flat) {
+            #expect(isNear(got, Int(wanted), within: 2))
         }
     }
 
     @Test(.enabled(if: hasMetal(), needsMetal))
     func lanczosKeepsAFlatPictureFlatWhenItDoublesIt() throws {
         let kit = try Kit()
-        let flat: [UInt8] = (0..<36).flatMap { _ -> [UInt8] in [200, 100, 50, 255] }
+        let blue: UInt8 = 200
+        let green: UInt8 = 100
+        let red: UInt8 = 50
+        let flat = flatBGRA(pixels: 36, blue: blue, green: green, red: red)
         let input = try kit.texture(.bgra8Unorm, 6, 6, bytes: flat)
         let middle = try kit.texture(.rgba16Float, 12, 6)
         let output = try kit.texture(.bgra8Unorm, 12, 12)
         let columns = LanczosTaps(source: 6, output: 12)
         let rows = LanczosTaps(source: 6, output: 12)
-        let columnStarts = try kit.buffer(columns.starts), columnWeights = try kit.buffer(columns.weights)
-        let rowStarts = try kit.buffer(rows.starts), rowWeights = try kit.buffer(rows.weights)
-        try kit.run(kit.pipeline("lanczos_horizontal"), width: 12, height: 6) { encoder in
+        let columnStarts = try kit.buffer(columns.starts)
+        let columnWeights = try kit.buffer(columns.weights)
+        let rowStarts = try kit.buffer(rows.starts)
+        let rowWeights = try kit.buffer(rows.weights)
+        let horizontal = try kit.pipeline("lanczos_horizontal")
+        let vertical = try kit.pipeline("lanczos_vertical")
+        try kit.run(horizontal, width: 12, height: 6) { encoder in
             encoder.setTexture(input, index: 0)
             encoder.setTexture(middle, index: 1)
             encoder.setBuffer(columnStarts, offset: 0, index: 0)
             encoder.setBuffer(columnWeights, offset: 0, index: 1)
         }
-        try kit.run(kit.pipeline("lanczos_vertical"), width: 12, height: 12) { encoder in
+        try kit.run(vertical, width: 12, height: 12) { encoder in
             encoder.setTexture(middle, index: 0)
             encoder.setTexture(output, index: 1)
             encoder.setBuffer(rowStarts, offset: 0, index: 0)
@@ -111,31 +159,30 @@ struct EnhanceShaderTests {
         let pixels = kit.bytes(of: output, bytesPerPixel: 4)
         #expect(pixels.count == 12 * 12 * 4)
         for start in stride(from: 0, to: pixels.count, by: 4) {
-            #expect(abs(Int(pixels[start]) - 50) <= 1)
-            #expect(abs(Int(pixels[start + 1]) - 100) <= 1)
-            #expect(abs(Int(pixels[start + 2]) - 200) <= 1)
+            #expect(isNear(pixels[start], Int(blue), within: 1))
+            #expect(isNear(pixels[start + 1], Int(green), within: 1))
+            #expect(isNear(pixels[start + 2], Int(red), within: 1))
         }
     }
 
     @Test(.enabled(if: hasMetal(), needsMetal))
     func lineArtLeavesAFlatPictureAlone() throws {
         let kit = try Kit()
-        let flat: [UInt8] = (0..<64).flatMap { _ -> [UInt8] in [60, 120, 180, 255] }
+        let flat = flatBGRA(pixels: 64, blue: 60, green: 120, red: 180)
         let input = try kit.texture(.bgra8Unorm, 8, 8, bytes: flat)
         let output = try kit.texture(.bgra8Unorm, 8, 8)
-        try kit.run(kit.pipeline("line_art_steepen"), width: 8, height: 8) { encoder in
+        let parameters = LineArtParameters(strength: 0.75)
+        let pipeline = try kit.pipeline("line_art_steepen")
+        try kit.run(pipeline, width: 8, height: 8) { encoder in
             encoder.setTexture(input, index: 0)
             encoder.setTexture(output, index: 1)
-            Kit.set(encoder, LineArtParameters(strength: 0.75), index: 0)
+            Kit.set(encoder, parameters, index: 0)
         }
-        for (got, wanted) in zip(kit.bytes(of: output, bytesPerPixel: 4), flat) {
-            #expect(abs(Int(got) - Int(wanted)) <= 1)
+        let result = kit.bytes(of: output, bytesPerPixel: 4)
+        #expect(result.count == flat.count)
+        for (got, wanted) in zip(result, flat) {
+            #expect(isNear(got, Int(wanted), within: 1))
         }
-    }
-
-    /// A value in 0...1 as the 8-bit level it is stored as.
-    private static func level(_ value: Float) -> Int {
-        Int((min(max(value, 0), 1) * 255).rounded())
     }
 }
 
@@ -184,22 +231,26 @@ private struct Kit {
         descriptor.storageMode = .shared
         guard let texture = device.makeTexture(descriptor: descriptor) else { throw Failure(description: "no texture") }
         if let bytes {
-            texture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: bytes, bytesPerRow: bytes.count / height)
+            let rowBytes = bytes.count / height
+            texture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: bytes, bytesPerRow: rowBytes)
         }
         return texture
     }
 
     func buffer<T>(_ values: [T]) throws -> any MTLBuffer {
-        guard let buffer = device.makeBuffer(bytes: values, length: values.count * MemoryLayout<T>.stride, options: .storageModeShared) else {
-            throw Failure(description: "no buffer")
+        let made = values.withUnsafeBytes { raw -> (any MTLBuffer)? in
+            guard let base = raw.baseAddress else { return nil }
+            return device.makeBuffer(bytes: base, length: raw.count, options: .storageModeShared)
         }
+        guard let buffer = made else { throw Failure(description: "no buffer") }
         return buffer
     }
 
     func bytes(of texture: any MTLTexture, bytesPerPixel: Int) -> [UInt8] {
         let rowBytes = texture.width * bytesPerPixel
         var result = [UInt8](repeating: 0, count: rowBytes * texture.height)
-        texture.getBytes(&result, bytesPerRow: rowBytes, from: MTLRegionMake2D(0, 0, texture.width, texture.height), mipmapLevel: 0)
+        let region = MTLRegionMake2D(0, 0, texture.width, texture.height)
+        texture.getBytes(&result, bytesPerRow: rowBytes, from: region, mipmapLevel: 0)
         return result
     }
 
@@ -217,10 +268,9 @@ private struct Kit {
         bind(encoder)
         let across = pipeline.threadExecutionWidth
         let down = max(pipeline.maxTotalThreadsPerThreadgroup / across, 1)
-        encoder.dispatchThreads(
-            MTLSize(width: width, height: height, depth: 1),
-            threadsPerThreadgroup: MTLSize(width: across, height: down, depth: 1)
-        )
+        let grid = MTLSize(width: width, height: height, depth: 1)
+        let group = MTLSize(width: across, height: down, depth: 1)
+        encoder.dispatchThreads(grid, threadsPerThreadgroup: group)
         encoder.endEncoding()
         commands.commit()
         commands.waitUntilCompleted()
