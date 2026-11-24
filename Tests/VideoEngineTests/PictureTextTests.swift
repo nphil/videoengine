@@ -54,12 +54,15 @@ struct PictureTextTests {
         let width = 760
         let height = 110
         let context = try Self.makeContext(width, height)
-        context.setFillColor(CGColor(red: ink.r, green: ink.g, blue: ink.b, alpha: 1))
         if outline {
+            // The edge first, then the fill over it: only the outer half of the stroke shows.
             context.setStrokeColor(CGColor(gray: 0, alpha: 1))
-            context.setLineWidth(5)
-            context.setTextDrawingMode(.fillStroke)
+            context.setLineWidth(6)
+            context.setTextDrawingMode(.stroke)
+            draw(text, in: context, x: 20, y: 30, size: size)
         }
+        context.setFillColor(CGColor(red: ink.r, green: ink.g, blue: ink.b, alpha: 1))
+        context.setTextDrawingMode(.fill)
         draw(text, in: context, x: 20, y: 30, size: size)
         let bytes = try #require(context.data).assumingMemoryBound(to: UInt8.self)
         var rgba = Data(count: width * height * 4)
