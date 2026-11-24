@@ -99,17 +99,19 @@ enum PictureText {
 
         var grey = [UInt8](repeating: background, count: width * height)
         for picture in pictures {
-            let left = picture.x - minX + padding
-            let top = picture.y - minY + padding
+            let left: Int = picture.x - minX + padding
+            let top: Int = picture.y - minY + padding
+            let pictureWidth: Int = picture.width
+            let pictureHeight: Int = picture.height
             picture.rgba.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Void in
-                for row in 0..<picture.height {
-                    for column in 0..<picture.width {
-                        let i = (row * picture.width + column) * 4
+                for row in 0..<pictureHeight {
+                    for column in 0..<pictureWidth {
+                        let i: Int = (row * pictureWidth + column) * 4
                         let alpha = Int(raw[i + 3])
                         if alpha == 0 { continue }
-                        let o = (top + row) * width + left + column
-                        let level = luminance(raw[i], raw[i + 1], raw[i + 2])
-                        grey[o] = UInt8((Int(grey[o]) * (255 - alpha) + level * alpha + 127) / 255)
+                        let o: Int = (top + row) * width + left + column
+                        let level: Int = luminance(raw[i], raw[i + 1], raw[i + 2])
+                        grey[o] = blend(Int(grey[o]), level, alpha)
                     }
                 }
             }
@@ -128,6 +130,12 @@ enum PictureText {
         context.interpolationQuality = .high
         context.draw(flat, in: CGRect(x: 0, y: 0, width: width * scale, height: height * scale))
         return context.makeImage() ?? flat
+    }
+
+    /// `level` over `behind` at `alpha` (0...255), both 0...255.
+    private static func blend(_ behind: Int, _ level: Int, _ alpha: Int) -> UInt8 {
+        let mixed: Int = behind * (255 - alpha) + level * alpha + 127
+        return UInt8(mixed / 255)
     }
 
     private static func luminance(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Int {
