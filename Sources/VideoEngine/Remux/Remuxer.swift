@@ -80,7 +80,10 @@ final class RemuxRun: Sendable {
             guard subtitle.webVTT != nil else { return nil }
             return HLSSubtitleRendition(
                 name: subtitle.name, language: subtitle.language, uri: "subs/\(i)/index.m3u8",
-                isDefault: subtitle.isDefault, forced: subtitle.isForced,
+                isDefault: subtitle.isDefault,
+                // Text read from pictures is offered, not picked for the viewer, unless its stream is flagged.
+                autoselect: !subtitle.isRecognizedFromPicture || subtitle.isDefault || subtitle.isForced,
+                forced: subtitle.isForced,
                 characteristics: subtitle.isHearingImpaired
                     ? ["public.accessibility.transcribes-spoken-dialog", "public.accessibility.describes-music-and-sound"] : []
             )
@@ -563,7 +566,13 @@ struct Remuxer: Sendable {
         profile81 converter: DolbyVisionProfile81Converter?, sealer: FragmentSealer, afterWrite: () -> Void
     ) throws {
         var profile81 = converter
-        let textTracks = run.subtitles.compactMap(\.webVTT)
+        // The reading thread's progress and end go to these tracks directly; a picture stream's text track
+        // hears of them through its worker, once the text is read (`PictureTextWorker`).
+        let textTracks = run.subtitles.filter { !$0.isRecognizedFromPicture }.compactMap(\.webVTT)
+        let allTextTracks = run.subtitles.compactMap(\.webVTT)
+        var movieOrigin: TimeInterval = 0
+        var finishedNormally = false
+        defer { if !finishedNormally { for tap in subtitles.values { tap.text?.cancel() } } }
         let reading = try FFPacket()
         let filtered = try FFPacket()
         defer { withExtendedLifetime((reading, filtered)) {} }
@@ -605,6 +614,7 @@ struct Remuxer: Sendable {
             if inIndex == videoIndex, packet.pointee.pts != FF.noPTS {
                 videoSeconds = Double(packet.pointee.pts) * av_q2d(base)
                 for track in textTracks { track.readThrough(videoSeconds) }
+                for tap in subtitles.values { tap.advance(served: videoSeconds, origin: movieOrigin) }
             }
             av_packet_rescale_ts(packet, base, outStream.pointee.time_base)
             packet.pointee.stream_index = Int32(mapping[inIndex])
@@ -643,7 +653,8 @@ struct Remuxer: Sendable {
             let movieTime = Double(origin.ticks) * av_q2d(origin.base)
                 - (containerStart != FF.noPTS ? Double(containerStart) / Double(FF.timeBase) : 0)
             run.setOrigin(movieTime)
-            for track in textTracks { track.setOrigin(movieTime) }
+            movieOrigin = movieTime
+            for track in allTextTracks { track.setOrigin(movieTime) }
             emit(.timeline(origin: movieTime))
             let released = held
             held.removeAll()
@@ -748,7 +759,13 @@ struct Remuxer: Sendable {
         }
         let trailer = av_write_trailer(output.context)
         guard trailer >= 0 else { throw VideoEngineError.writeFailed(code: trailer) }
-        for tap in subtitles.values { tap.finish() }
+        finishedNormally = true
+        for tap in subtitles.values { tap.finish(duration: videoSeconds) }
+        for (index, tap) in subtitles {
+            if let dropped = tap.text?.dropped, dropped > 0 {
+                logger.event("subtitle-text-dropped", [("stream", String(index)), ("events", String(dropped))])
+            }
+        }
         for track in textTracks { track.finish(duration: videoSeconds) }
         noteFirstSegment()
         afterWrite()
@@ -758,15 +775,29 @@ struct Remuxer: Sendable {
     struct SubtitleTap {
         let decoder: SubtitleDecoder
         let stream: RemuxSubtitle
+        /// Reads the stream's pictures into the text rendition `RemuxOptions.bitmapSubtitleText` adds.
+        let text: PictureTextWorker?
 
         func read(_ packet: UnsafeMutablePointer<AVPacket>) {
             let decoded = decoder.decode(packet)
             if !decoded.cues.isEmpty { stream.webVTT?.add(contentsOf: decoded.cues) }
             for bitmap in decoded.bitmaps { stream.overlay?.add(bitmap) }
+            if let text { for event in PictureTextWorker.events(decoded.bitmaps) { text.submit(event) } }
         }
 
-        func finish() {
-            for bitmap in decoder.finish() { stream.overlay?.add(bitmap) }
+        /// The reading thread is `served` seconds into the media file's timeline. A picture still on screen
+        /// is not yet an event, so the text rendition is not complete from where it began.
+        func advance(served: TimeInterval, origin: TimeInterval) {
+            guard let text else { return }
+            text.advance(to: decoder.openStart.map { min(served, $0 - origin) } ?? served)
+        }
+
+        func finish(duration: TimeInterval) {
+            let remaining = decoder.finish()
+            for bitmap in remaining { stream.overlay?.add(bitmap) }
+            guard let text else { return }
+            for event in PictureTextWorker.events(remaining) { text.submit(event) }
+            text.finish(duration: duration)
         }
     }
 
@@ -808,13 +839,22 @@ struct Remuxer: Sendable {
                 isForced: disposition & FF.dispositionForced != 0,
                 isHearingImpaired: disposition & FF.dispositionHearingImpaired != 0
             )
+            let offers: [RemuxSubtitle]
+            var worker: PictureTextWorker?
             if decoder.isBitmap {
                 info.overlay = SubtitleOverlayTrack()
+                offers = RemuxSubtitle.offered(
+                    picture: info, recognizeText: options.bitmapSubtitleText, targetDuration: targetDuration, unique: unique
+                )
+                if offers.count > 1, let track = offers[1].webVTT {
+                    worker = PictureTextWorker(track: track, languageTag: language)
+                }
             } else {
                 info.webVTT = SubtitleTrack(targetDuration: targetDuration)
+                offers = [info]
             }
-            taps[i] = SubtitleTap(decoder: decoder, stream: info)
-            offered.append(info)
+            taps[i] = SubtitleTap(decoder: decoder, stream: offers[0], text: worker)
+            offered += offers
         }
         for sidecar in options.sidecarSubtitles {
             let track = SubtitleTrack(targetDuration: targetDuration, holdback: nil)

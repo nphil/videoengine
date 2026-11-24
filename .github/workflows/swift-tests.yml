@@ -81,7 +81,8 @@ jobs:
               tail -3 build.log
               exit 0
             fi
-            grep -q "does not contain a scheme" build.log || { tail -80 build.log; exit 1; }
+            # The compiler's errors come first: the last lines are mostly repeated warnings.
+            grep -q "does not contain a scheme" build.log || { grep -A3 -E "error:" build.log | head -60; tail -40 build.log; exit 1; }
             echo "scheme not found (attempt $attempt of 4)"
           done
           exit 1

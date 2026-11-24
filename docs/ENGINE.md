@@ -113,6 +113,33 @@ session.stop()
   `session.subtitleStreams[i].overlay?.bitmaps(at: movieTime)`.
   `SubtitleFile.read(fileURL:forcedOnly:)` reads sidecar files (.srt, .vtt,
   .ass, .smi, .sup).
+- **Text from picture subtitles (v2.2.0+).** The overlay track does not
+  show in Picture in Picture or over AirPlay, since AVPlayer draws only what
+  is in the playlist. With `options.bitmapSubtitleText = true` (default off)
+  each picture stream is also offered as a WebVTT rendition named
+  "<name> (text from picture)", for example "English (text from picture)",
+  next to its overlay entry in `session.subtitleStreams`; the two share
+  `streamIndex`, and the rendition has `isRecognizedFromPicture == true`. Its
+  cues are what Vision (`VNRecognizeTextRequest`, accurate level, language
+  correction on, language from the stream's tag when Vision supports it,
+  else detected) reads from each event's pictures, lines top to bottom,
+  with the event's own start and end times. An event that reads as empty
+  gets no cue. The rendition carries the stream's language and its default,
+  forced and hearing-impaired flags; it is AUTOSELECT only when the stream
+  is default or forced, so AVPlayer offers it but does not pick it for the
+  viewer. An app that draws the overlay itself should not also select the
+  rendition, or the text shows twice. Reading is lossy by design and the
+  overlay stays the pixel-accurate rendering. It runs on one utility-priority
+  queue per stream, off the remux thread, which only enqueues: production
+  is never held up. At most 512 events wait per stream; later ones are
+  dropped, which only leaves a cue missing, and the run logs the count as
+  `subtitle-text-dropped`. Slots follow the usual rule, listed once the producer has
+  read 5 s past them, with one addition: a slot is listed only after every
+  event read so far has been recognised, and not while a picture of the
+  stream is on screen without an end yet, so a listed slot never gains a
+  cue. The rendition therefore trails the video by the reading time. Design
+  after AetherEngine's documented feature (LGPL-3.0,
+  github.com/superuser404notfound/AetherEngine); no code taken.
 - **Pacing.** For sources above `paceMinSourceBytes`, production runs up to
   `paceLeadSeconds` ahead of the playhead (twice that from 100 ms to the
   first byte, or with less than twice the media's rate to spare), then keeps
@@ -524,3 +551,4 @@ while playing, then seek twice.
 | S7 | MKV VobSub with and without palette | pictures shown; none without a palette |
 | S8 | a 12 s GOP file with long cues | long cues repeat across slots without flicker; the subtitle playlist may trail the video |
 | S9 | AirPlay with the loopback URL | expected unreachable: the app falls back |
+| S10 | PGS or VobSub MKV with `bitmapSubtitleText` on | "<name> (text from picture)" is listed in `AVPlayerViewController`; its cues match the pictures' text and timing; stays visible in Picture in Picture; with the option off no such track exists |

@@ -110,6 +110,9 @@ final class SubtitleDecoder {
     private let startTime: TimeInterval
     /// Pictures shown until the next event, as PGS and VobSub do not say when they end.
     private var showing: [SubtitleBitmap] = []
+    /// Movie time at which the oldest picture still on screen began, or nil when none is. Such a picture
+    /// is delivered only when the next event ends it, so a slot from this time on is not yet complete.
+    var openStart: TimeInterval? { showing.map(\.start).min() }
 
     init(stream: UnsafeMutablePointer<AVStream>, startTime: TimeInterval, forcedOnly: Bool = false) throws {
         let parameters: UnsafeMutablePointer<AVCodecParameters> = stream.pointee.codecpar
@@ -293,6 +296,10 @@ public struct RemuxSubtitle: Sendable {
     public var webVTT: SubtitleTrack?
     /// Pictures, for the app to draw over the video.
     public var overlay: SubtitleOverlayTrack?
+    /// True for the WebVTT rendition of text read from a picture stream (`RemuxOptions.bitmapSubtitleText`).
+    /// It shares `streamIndex` with the stream's `overlay` entry; an app that draws the overlay itself
+    /// should not also show this one.
+    public var isRecognizedFromPicture = false
 
     public init(streamIndex: Int?, name: String, language: String, isDefault: Bool = false, isForced: Bool = false,
                 isHearingImpaired: Bool = false, webVTT: SubtitleTrack? = nil, overlay: SubtitleOverlayTrack? = nil) {
