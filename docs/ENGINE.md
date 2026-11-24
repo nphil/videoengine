@@ -268,7 +268,7 @@ Design after AetherEngine's documented feature; no code taken.
   every read inside them need no request, including re-reads of the head
   after the tail. Reads past them are requested as usual. Nothing in
   `HTTPRangeSource`'s signature or behaviour changes, and sources made by
-  `ByteRangeSources.make`, `MediaProbe`, `RemuxSession` and `FrameExtractor`
+  `ByteRangeSources.make`, `MediaProbe` and `RemuxSession`
   adopt the same way.
 - Held bytes are dropped when a source takes them, after three minutes and
   when the system reports memory pressure; at most eight files are held.

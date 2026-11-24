@@ -441,7 +441,7 @@ final class RangeFetch: Sendable {
     let limit: Int
     private let meter: TransferMeter
     private let requested: UInt64
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state: OSAllocatedUnfairLock<State>
     private let task = OSAllocatedUnfairLock<URLSessionDataTask?>(uncheckedState: nil)
 
     init(start: Int64, limit: Int, meter: TransferMeter) {
@@ -449,6 +449,7 @@ final class RangeFetch: Sendable {
         self.limit = limit
         self.meter = meter
         requested = meter.now()
+        state = OSAllocatedUnfairLock(initialState: State())
     }
 
     /// A finished request that already holds `body`, the opening bytes of a resource.
