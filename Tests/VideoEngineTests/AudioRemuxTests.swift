@@ -55,21 +55,26 @@ struct AudioRemuxTests {
             }
         }
         guard ending == "finished" else {
-            throw Unfinished(description: "\(ending)\n" + lines.withLock { $0 }.suffix(40).joined(separator: "\n"))
+            let seen = lines.withLock { $0 }.suffix(30).joined(separator: " | ")
+            throw Unfinished(description: "\(ending) [\(SyntheticAudio.describeAudio(of: fixture))] \(seen)")
         }
         let (master, _) = try await URLSession.shared.data(from: playlistURL)
         return Outcome(master: String(decoding: master, as: UTF8.self), audioPlans: plans.withLock { $0 })
+    }
+
+    @Test func surroundThatIsNotCopiedStaysAACByDefault() async throws {
+        let source = Fixture.temporaryURL(".mkv")
+        defer { try? FileManager.default.removeItem(at: source) }
+        try SyntheticAudio.writeSurroundMatroska(to: source, seconds: 3)
+        // PCM 5.1 is not copied: AAC unless the policy asks for E-AC-3.
+        let aac = try await remux(source, audio: AudioPolicy())
+        #expect(aac.master.contains(",mp4a.40.2\""), "\(aac.master)")
     }
 
     @Test func surroundThatIsNotCopiedBecomesEAC3WhenAsked() async throws {
         let source = Fixture.temporaryURL(".mkv")
         defer { try? FileManager.default.removeItem(at: source) }
         try SyntheticAudio.writeSurroundMatroska(to: source, seconds: 3)
-
-        // PCM 5.1 is not copied: AAC unless the policy asks for E-AC-3.
-        let aac = try await remux(source, audio: AudioPolicy())
-        #expect(aac.master.contains(",mp4a.40.2\""), "\(aac.master)")
-
         var policy = AudioPolicy()
         policy.surroundCodec = .eac3
         let eac3 = try await remux(source, audio: policy)

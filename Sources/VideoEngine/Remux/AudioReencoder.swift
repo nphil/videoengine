@@ -125,6 +125,12 @@ final class AudioReencoder {
             let received = avcodec_receive_frame(decoder.pointer, decoded.pointer)
             if received == FF.eagain || received == FF.averrorEOF { break }
             guard received >= 0 else { throw VideoEngineError.failure("decode audio", received) }
+            // A container that only counts channels gives frames no layout, which the resampler would not
+            // accept again after it took the default itself.
+            let count = decoded.pointer.pointee.ch_layout.nb_channels
+            if decoded.pointer.pointee.ch_layout.order == AV_CHANNEL_ORDER_UNSPEC, count > 0 {
+                av_channel_layout_default(&decoded.pointer.pointee.ch_layout, count)
+            }
             if nextPTS == nil {
                 let start = decoded.pointer.pointee.best_effort_timestamp
                 nextPTS = start == FF.noPTS ? 0 : av_rescale_q(start, sourceTimeBase, encoder.pointer.pointee.time_base)

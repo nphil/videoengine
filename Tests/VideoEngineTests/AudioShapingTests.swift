@@ -124,6 +124,22 @@ enum SyntheticAudio {
         deinit { avformat_free_context(format) }
     }
 
+    /// The first audio stream's channel count, layout order and sample format as read back from `url`, for failure text.
+    static func describeAudio(of url: URL) -> String {
+        var input: UnsafeMutablePointer<AVFormatContext>?
+        guard avformat_open_input(&input, url.path, nil, nil) >= 0, let source = input else { return "cannot open" }
+        defer { avformat_close_input(&input) }
+        _ = avformat_find_stream_info(source, nil)
+        for i in 0..<Int(source.pointee.nb_streams) {
+            let parameters = source.pointee.streams[i]!.pointee.codecpar!
+            if parameters.pointee.codec_type == AVMEDIA_TYPE_AUDIO {
+                return "audio channels=\(parameters.pointee.ch_layout.nb_channels) order=\(parameters.pointee.ch_layout.order.rawValue) "
+                    + "format=\(parameters.pointee.format) rate=\(parameters.pointee.sample_rate)"
+            }
+        }
+        return "no audio"
+    }
+
     /// A Matroska file with the video of `h264-aac.mkv` and `seconds` of 16-bit PCM 5.1 in place of its audio.
     static func writeSurroundMatroska(to url: URL, seconds: Int) throws {
         var input: UnsafeMutablePointer<AVFormatContext>?
