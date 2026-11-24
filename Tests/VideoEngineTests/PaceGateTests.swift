@@ -117,6 +117,21 @@ struct PaceGateTests {
         #expect(old.longestWait > 500)
     }
 
+    /// Seeking back again and again, as a scrubbing viewer does, never leaves production waiting for a
+    /// playhead that is far behind what it has produced.
+    @Test func repeatedBackwardSeeksKeepPlaying() {
+        var sim = Simulation(reportsWaiting: false, allows: Self.gated())
+        sim.run(for: 400)
+        for step in [90.0, 40.0, 150.0] {
+            sim.player.seek(to: max(0, sim.player.playhead - step))
+            sim.resetWaits()
+            let from = sim.player.playhead
+            sim.run(for: 120)
+            #expect(sim.longestWait < 2)
+            #expect(sim.player.playhead - from > 115)
+        }
+    }
+
     /// Paused in Picture in Picture by an audio interruption (field log, 2026-11-20), then resumed with the
     /// buffer dropped.
     @Test func aLongPauseKeepsTheItemAliveAndResumesPlaying() {

@@ -153,6 +153,117 @@ struct RemuxSessionTests {
         #expect(!subtitles.contains("#EXT-X-ENDLIST"))
         #expect(try await text("subs/0/0.vtt").contains("Forced"))
     }
+
+    /// A target already in the run's sealed segments needs no new run; one past them does.
+    @Test func seekReusingKeepsTheRunForATargetItHasProduced() async throws {
+        let fixture = try Fixture.url("h264-aac-60s.mkv")
+        let session = RemuxSession(sourceFactory: { try FileRangeSource(fileURL: fixture) })
+        defer { session.stop() }
+        let watchdog = Task {
+            try await Task.sleep(for: .seconds(60))
+            session.stop()
+        }
+        defer { watchdog.cancel() }
+        let first = try await session.start()
+        var origin: TimeInterval?
+        events: for await event in session.events {
+            switch event {
+            case .timeline(let value): origin = value
+            case .finished, .stopped: break events
+            case .failed(let error, _):
+                Issue.record("remux failed: \(error)")
+                break events
+            default: continue
+            }
+        }
+        let start = try #require(origin)
+
+        let inside = try await session.seekReusing(to: 30)
+        #expect(inside.reused)
+        #expect(inside.url == first)
+        #expect(inside.itemTime == 30 - start)
+        let back = try await session.seekReusing(to: start + 2)
+        #expect(back.reused)
+        #expect(back.url == first)
+        #expect(abs(try #require(back.itemTime) - 2) < 1e-9)
+
+        // Past the end of the file: a new run, which is what seek(to:) makes.
+        let beyond = try await session.seekReusing(to: 600)
+        #expect(!beyond.reused)
+        #expect(beyond.itemTime == nil)
+        #expect(beyond.url != first)
+    }
+
+    /// While a run is still producing (here held at 48 s), back and forth: back is free, ahead of the
+    /// sealed segments is a new run.
+    @Test func seekReusingStopsAtWhatTheRunHasSealed() async throws {
+        let fixture = try Fixture.url("h264-aac-60s.mkv")
+        let session = RemuxSession(sourceFactory: { try GatedSource(fixture, stopAt: 229_974) })
+        defer { session.stop() }
+        let first = try await session.start()
+        let deadline = ContinuousClock.now + .seconds(30)
+        while session.progress.mediaSeconds < 30, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(session.progress.mediaSeconds >= 30)
+
+        let back = try await session.seekReusing(to: 10)
+        #expect(back.reused)
+        #expect(back.url == first)
+        let again = try await session.seekReusing(to: 20)
+        #expect(again.reused)
+        #expect(again.url == first)
+        let ahead = try await session.seekReusing(to: 55)
+        #expect(!ahead.reused)
+        #expect(ahead.url != first)
+    }
+
+    @Test func aTargetIsReusableOnlyInsideTheSealedRangeOfTheRun() {
+        #expect(RemuxSession.reusableItemTime(for: 30, origin: 0.04, sealedDuration: 50) == 30 - 0.04)
+        #expect(RemuxSession.reusableItemTime(for: 0.04, origin: 0.04, sealedDuration: 50) == 0)
+        // Before the run's own start, at the end of the sealed range, and past it.
+        #expect(RemuxSession.reusableItemTime(for: 10, origin: 40, sealedDuration: 50) == nil)
+        #expect(RemuxSession.reusableItemTime(for: 50, origin: 0, sealedDuration: 50) == nil)
+        #expect(RemuxSession.reusableItemTime(for: 90, origin: 0, sealedDuration: 50) == nil)
+        #expect(RemuxSession.reusableItemTime(for: 5, origin: 0, sealedDuration: 0) == nil)
+        #expect(RemuxSession.reusableItemTime(for: .nan, origin: 0, sealedDuration: 50) == nil)
+    }
+
+    /// The fixture has no Dolby Vision, so this covers what the option changes around the stream: the
+    /// record, written as profile 8.1 on an hvc1 entry, and the codec strings built from it.
+    @Test func profile7AsProfile8OffersDvh1AsSupplementalCodecs() async throws {
+        let fixture = try Fixture.url("hevc10-opus-srt.mkv")
+        var options = RemuxOptions()
+        options.dolbyVision = .profile7AsProfile8
+        options.dolbyVisionFallback = DolbyVisionConfiguration(
+            profile: 7, level: 6, compatibilityID: 6, hasRPU: true, hasEnhancementLayer: true
+        )
+        let session = RemuxSession(sourceFactory: { try FileRangeSource(fileURL: fixture) }, options: options)
+        defer { session.stop() }
+        let watchdog = Task {
+            try await Task.sleep(for: .seconds(60))
+            session.stop()
+        }
+        defer { watchdog.cancel() }
+        let playlistURL = try await session.start()
+        var sampleEntry: String?
+        events: for await event in session.events {
+            switch event {
+            case .headerWritten(_, let entry): sampleEntry = entry
+            case .finished, .stopped: break events
+            case .failed(let error, _):
+                Issue.record("remux failed: \(error)")
+                break events
+            default: continue
+            }
+        }
+        #expect(sampleEntry == "hvc1")
+        let (master, _) = try await URLSession.shared.data(from: playlistURL)
+        let variant = String(decoding: master, as: UTF8.self)
+        #expect(variant.contains("CODECS=\"hvc1.2."))
+        #expect(variant.contains("SUPPLEMENTAL-CODECS=\"dvh1.08.06/db1p\""))
+        #expect(variant.contains("VIDEO-RANGE=PQ"))
+    }
 }
 
 /// A file whose bytes from `stopAt` on, short of the last 16 KiB, never arrive: a link that stalls
