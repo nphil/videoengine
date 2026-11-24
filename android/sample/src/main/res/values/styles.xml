@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A button that shows clearly which one the D-pad is on. -->
+    <style name="SampleButton" parent="@android:style/Widget.Material.Button">
+        <item name="android:background">@drawable/button_bg</item>
+    </style>
+</resources>

@@ -6,12 +6,51 @@
     android:keepScreenOn="true"
     android:orientation="vertical">
 
-    <androidx.media3.ui.PlayerView
-        android:id="@+id/player"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="4"
-        app:resize_mode="fit" />
+        android:layout_weight="4">
+
+        <!-- Focusable, with a ring while focused: after Play the D-pad drives playback from here. -->
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/player"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:focusable="true"
+            android:foreground="@drawable/focus_ring"
+            app:resize_mode="fit" />
+
+        <!-- Shown over the video while the report is shared on the local network: the address, in large text. -->
+        <LinearLayout
+            android:id="@+id/share_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#E6000000"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/share_url"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="#FFFFFFFF"
+                android:textSize="34sp"
+                android:textStyle="bold"
+                android:typeface="monospace" />
+
+            <TextView
+                android:id="@+id/share_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:paddingTop="12dp"
+                android:textColor="#FFCCCCCC"
+                android:textSize="16sp" />
+        </LinearLayout>
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -20,35 +59,55 @@
 
         <Button
             android:id="@+id/play"
+            style="@style/SampleButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_margin="3dp"
             android:layout_weight="1"
             android:text="@string/play" />
 
         <Button
             android:id="@+id/check"
+            style="@style/SampleButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_margin="3dp"
             android:layout_weight="2"
             android:text="@string/check" />
 
         <Button
             android:id="@+id/copy"
+            style="@style/SampleButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_margin="3dp"
             android:layout_weight="2"
             android:text="@string/copy" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/share"
+        style="@style/SampleButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="3dp"
+        android:text="@string/share" />
+
     <ListView
         android:id="@+id/fixtures"
         android:layout_width="match_parent"
-        android:layout_height="132dp" />
+        android:layout_height="132dp"
+        android:drawSelectorOnTop="true"
+        android:listSelector="@drawable/focus_row" />
 
+    <!-- Focusable so the D-pad can reach it; once focused, Up and Down scroll the text. -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="3">
+        android:layout_weight="3"
+        android:fadeScrollbars="false"
+        android:focusable="true"
+        android:foreground="@drawable/focus_ring">
 
         <TextView
             android:id="@+id/detail"

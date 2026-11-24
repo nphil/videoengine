@@ -63,19 +63,21 @@ Things worth knowing:
 
 ## Run the sample on a device
 
-1. Install: `adb install -r sample-debug.apk`. For the Onn box connect first (`adb connect <box-ip>:5555`, with developer options and network debugging on). The app is called **VideoEngine sample** and appears in the app list (Google TV: under Apps).
+1. Install: `adb install -r sample-debug.apk`. For the Onn box connect first (`adb connect <box-ip>:5555`, with developer options and network debugging on). The app is called **VideoEngine sample**; on a tablet it is in the app list, on a TV box it has a banner tile (Leanback launcher) in the Apps row of the home screen.
 2. The bottom text already shows the capability report, one `hw-*` line per group (`hw-id`, `hw-cpu`, `hw-gpu`, `hw-dec`, `hw-dv`, `hw-fps`, `hw-enc`, `hw-disp`, `hw-pwr`, `hw-aud`, `hw-eng`).
 3. Pick each of the three fixtures in the list: it shows the probe and the route the planner picks on this device. **Play** plays it through `EnginePlayer`.
 4. **Check probe against manifest** compares every fixture with `manifest.json` and ends with `probe equals manifest.json: PASS (3 files)` or the differences.
-5. **Copy device report** copies the report to the clipboard (hardware lines, recent diagnostics, the snapshot as JSON) and also saves it as `/sdcard/Android/data/io.github.nphil.videoengine.sample/files/device-report.txt`.
+5. **Copy device report** copies the report to the clipboard (hardware lines, the results shown on screen, recent diagnostics, the snapshot as JSON) and also saves it as `/sdcard/Android/data/io.github.nphil.videoengine.sample/files/device-report.txt`.
+6. **Share report on local network** is for a box with no clipboard and no `adb`: it shows an address such as `http://192.168.1.50:8765/` in large text over the video. Open it in a browser on a phone or a computer on the same network; the page is the same report as plain text, and `/snapshot.json` is the snapshot alone. Sharing stops after 10 minutes, on **Stop sharing**, or when you leave the screen. It is plain read-only HTTP (port 8765), so anyone on the network can read the report while it runs.
+7. **D-pad:** everything is reachable with the arrow keys and the centre button: the video, the four buttons, the fixture list and the text (Down scrolls it once it is focused). After **Play** the video has the focus, so the arrows and the centre button drive playback.
 
-**Send back:** on the tablet paste the clipboard into a message. On the Onn box (no paste target) run
+**Send back:** on the tablet paste the clipboard into a message. On the Onn box (no paste target) use **Share report on local network** and open the address on a phone or a computer, or run
 
 ```sh
 adb pull /sdcard/Android/data/io.github.nphil.videoengine.sample/files/device-report.txt
 ```
 
-and send the file. Also note, from the screen: did each fixture play (picture, sound, subtitles on `hevc10-opus-srt.mkv`), and did the check say PASS. The report answers the open questions of the stage 1 exit gate: Dolby Vision profiles the decoder advertises (`hw-dv`), the Atmos path and `Spatializer` state (`hw-aud`), which Onn generation (`hw-id`, `hw-cpu`).
+and send the file, or the text of the page. Also note, from the screen: did each fixture play (picture, sound, subtitles on `hevc10-opus-srt.mkv`). Press **Check probe against manifest** before copying or sharing, so its PASS or FAIL is in the report. The report answers the open questions of the stage 1 exit gate: Dolby Vision profiles the decoder advertises (`hw-dv`), the Atmos path and `Spatializer` state (`hw-aud`), which Onn generation (`hw-id`, `hw-cpu`).
 
 ## Provisional until the device reports are back
 
@@ -86,7 +88,7 @@ and send the file. Also note, from the screen: did each fixture play (picture, s
 ```
 videoengine/src/main/kotlin/...   the library (one file per concern: HardwareCapabilities, PlatformProbe, MediaProbe, ProbeMapper, RoutePlanner, AudioPlanner, EnginePlayer, ...)
 videoengine/src/test/             JVM tests; java/android/{os,util} are two small stand-ins for framework classes the unit-test stub leaves empty
-sample/                           the test bench; a Gradle copy task puts Tests/VideoEngineTests/Fixtures and shared/fixtures/manifest.json into its assets, so no video is duplicated in git
+sample/                           the test bench; a Gradle copy task puts Tests/VideoEngineTests/Fixtures and shared/fixtures/manifest.json into its assets, so no video is duplicated in git; ReportServer (the Share button's tiny HTTP server) and LocalAddress live here, not in the library
 ../shared/route-vectors.json      platform-neutral route vectors and the snapshots they run on (Swift adopts them later)
 ../shared/fixtures/manifest.json  what ffprobe reports for the fixtures
 ```
