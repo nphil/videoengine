@@ -103,7 +103,7 @@ enum EnhanceShaders {
         int first = starts[gid.x];
         float4 sum = float4(0.0);
         for (int tap = 0; tap < kTaps; ++tap) {
-            sum += weights[int(gid.x) * kTaps + tap] * input.read(uint2(clamp(first + tap, 0, last), gid.y));
+            sum += weights[int(gid.x) * kTaps + tap] * input.read(uint2(uint(clamp(first + tap, 0, last)), gid.y));
         }
         output.write(sum, gid);
     }
@@ -171,7 +171,7 @@ enum EnhanceShaders {
         // Positive: the pixel sits lower than the average of its two neighbours (a dark shoulder); negative: a bright one.
         float bend = forward + backward - 2.0 * here;
         float3 target = bend > 0.0 ? (forward < backward ? ahead : behind) : (forward > backward ? ahead : behind);
-        float amount = p.strength * confidence * smoothstep(0.01, 0.05, abs(bend));
+        float amount = p.strength * confidence * smoothstep(0.01, 0.05, fabs(bend));
         output.write(float4(mix(centre, target, amount), 1.0), gid);
     }
 
@@ -209,7 +209,7 @@ enum EnhanceShaders {
                 float reach = 0.3 + 0.7 * unit_noise(scramble(seed + uint(tap + 1) * 0x632be5abu));
                 int2 spot = at + int2(round(direction * (reach * p.debandRadius)));
                 float3 neighbour = fetch(input, spot, last);
-                float3 gap = abs(neighbour - original);
+                float3 gap = fabs(neighbour - original);
                 float largest = max(gap.r, max(gap.g, gap.b));
                 float within = 1.0 - smoothstep(0.5 * p.debandThreshold, p.debandThreshold, largest);
                 total += mix(original, neighbour, within);
@@ -226,7 +226,7 @@ enum EnhanceShaders {
             float3 right = fetch(input, at + int2(1, 0), last);
             float3 low = min(min(up, down), min(min(left, right), colour));
             float3 high = max(max(up, down), max(max(left, right), colour));
-            float3 room = saturate(min(low, 1.0 - high) / max(high, 0.0001));
+            float3 room = saturate(min(low, 1.0 - high) / max(high, float3(0.0001)));
             float3 weight = -sqrt(room) * (0.05 + 0.15 * p.sharpen);
             colour = (colour + (up + down + left + right) * weight) / (1.0 + 4.0 * weight);
         }
