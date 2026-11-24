@@ -123,11 +123,12 @@ documented mix-down. Lip sync within 40 ms (T1).
 |---|---|---|
 | AAC-LC, HE-AAC explicit SBR; AAC with program config or implicit SBR | copy; the latter re-encoded (unproven) | platform decoder; PCE and implicit SBR ⚠ test |
 | AC-3, E-AC-3 5.1 or JOC | copy (`delay_moov`); JOC keeps Atmos on AirPods (T2) | passthrough if `isPassthroughPlaybackSupported` [M4], else platform decoder, else FFmpeg extension [M1]; JOC kept only if the sink supports it ⚠ |
+| Dolby Atmos: E-AC-3 JOC, AC-4 (**contract rule, P**) | JOC copied untouched (T2) | handed untouched to the platform decoder or passthrough, **never decoded by FFmpeg, never re-encoded**; AC-4 only if `MediaCodecList` lists an `audio/ac4` decoder ⚠; if `shaping` or a PCM sink is forced, Atmos is lost and the app is told |
 | E-AC-3 above 5.1 | 5.1 core (`eac3_core`): the MP4 muxer cannot describe 7.1 | passthrough carries the whole stream (**an Apple muxer limit, not a contract rule**) |
 | FLAC, ALAC | copy up to stereo, 96 kHz, 24 bit, else re-encode | any decoder, no limit |
 | TrueHD, DTS, DTS-HD | decode, mix to 5.1(side), AAC 384 kbit/s, or E-AC-3 640 kbit/s with `surroundCodec = .eac3` (*2.2.0*) | passthrough on TV or receiver, else FFmpeg extension (`dca truehd mlp`) [M1] |
 | Opus, Vorbis, MP3, MP2 | decode, AAC 192 kbit/s stereo | platform decoder |
-| `shaping` (*2.2.0*): delay up to 2 s either way, dialogue lift 0 to 12 dB, night mode | forces re-encode | custom `AudioProcessor` on PCM; **forces decode, disables passthrough and offload** (offload limits effects [M6]) |
+| `shaping` (*2.2.0*): delay up to 2 s either way, dialogue lift 0 to 12 dB, night mode | forces re-encode | custom `AudioProcessor` on PCM; **forces decode, disables passthrough and offload** (offload limits effects [M6]); never applied silently to an Atmos track |
 
 No on-device AAC re-encode on Android: there is no HLS muxer to satisfy. Rule 6 of 2.2 applies
 when no passthrough, platform decoder or FFmpeg decoder exists.
@@ -244,6 +245,57 @@ and from `fair` heat (a 4K 32BGRA copy is about 33 MB a frame). A 10-minute 4K p
 - **No AVI, ASF/WMV, RealMedia** [M1]; no AirPlay (Cast is separate work).
 - **Native code** must be 16 KB page-aligned for Play; NDK r28 or newer does it by default [A7].
 
+### 3.1 Device-flexible by rule; target devices
+
+**Rule (P).** The Android engine is tuned to no device. Every capability is **probed at runtime** into one
+`HardwareCapabilities` snapshot (the mirror of Apple's): decoders via `MediaCodecList` and performance points,
+display HDR types and modes, `AudioCapabilities` and passthrough, GPU and NPU availability, thermal and power.
+All decisions (2.2 route, 2.3 verdicts, 2.5 audio, enhancement) are pure functions of that snapshot. **No device-name
+checks**; `Build.MODEL` is only logged in `hw-id`. A weak device degrades by a fixed ladder: enhancement off, then a
+lower enhancement rung, then software-only video allowed only below the rule 5 limit, then server transcode; audio
+goes passthrough, platform decoder, FFmpeg decoder, server. The stage 1 snapshots of both devices below are
+committed as `shared/devices/*.json` and replayed by the route-planner vectors, next to a synthetic weak and a
+synthetic strong snapshot, so "works on any device" is a test, not a promise.
+
+**Enhance-picture rungs (P, same names on both platforms).** `off`, `scale` (single-pass spatial upscaler),
+`shader` (heavier GPU filter), `neural` (ML super resolution). The rung comes from the snapshot, a short first-use
+frame-time benchmark cached per `Build.FINGERPRINT`, and heat: one rung down at `fair`, `off` when
+`shouldShedOptionalWork`; never applied to frame extraction or server output; never changes HDR or Dolby Vision
+metadata; logged as `hw-state enhance=<rung>`.
+
+Targets: **Xiaomi Pad 8 Pro** (primary; stage 1 runs here) and **Onn 4K Pro** (Google TV box, later Android TV
+app). Two generations of the Onn exist and the sources differ, so the column lists both; which one is owned is
+recorded in stage 1. Everything not stated by a maker is ⚠ and is read on the device.
+
+| Block | Xiaomi Pad 8 Pro | Onn 4K Pro (2024 / 2026) | How the engine reaches it, any device |
+|---|---|---|---|
+| SoC, RAM | Snapdragon 8 Elite, 3 nm, Oryon 2+6 cores, Adreno 830 @1100 MHz, 8 or 12 GB [X1]; Qualcomm's brief lists 2+5 for SM8750-3-AB [X2], so count cores at run time | 2024: Amlogic S905X4, 4 x A55 2.0 GHz, Mali-G31 MP2, 3 GB [O1][O2]. 2026: S905X5M, 6 nm, 4 x A55, Mali-G310 V2, 3 GB [O3] | `availableProcessors`, `ActivityManager.MemoryInfo`, GL and Vulkan strings in `hw-cpu`, `hw-gpu` |
+| Video decode | hardware H.265, VP9, AV1; 8K HDR playback at 60 fps [X2]; H.264 not named there ⚠ | 2026: H.265, AVS2, VP9, AV1 to 4K at 75 fps 10-bit, HLG, HDR10 [O3]. 2024: AV1, VP9, H.264, H.265 [O1][O2]; limits ⚠ | `MediaCodecList`, `isHardwareAccelerated`, `getSupportedPerformancePoints`, `areSizeAndRateSupported` [A1][A2], recorded per codec, profile, bit depth as `hw-dec` |
+| HDR, Dolby Vision | HDR10, HLG, HDR10+, Dolby Vision playback [X2]; Xiaomi lists HDR10 and Dolby Vision [X1]. **Which DV profiles the decoder advertises is not published ⚠**: read `CodecProfileLevel.DolbyVision*` of `video/dolby-vision` decoders in stage 1 | Dolby Vision and HDR10 stated [O1][O3][O5]; HDR10+ listed by one guide [O2] but unconfirmed elsewhere ⚠; **no DV profile 7** on the 2026 box [O5] | decoder profile list plus `Display.HdrCapabilities` of the *connected* display (the TV, not the box) [A3]; 2.4 rules pick per profile. P7 on the box takes the HDR10 base layer through Media3's fallback from 1.12.0-beta01 [M2]; on 1.11.1 (D4) route P7 to the server on a device with no P7 decoder [M3] |
+| Atmos, audio out | "Dolby Atmos supported", quad speakers [X1]. Atmos on speakers and headphones is **owner-reported, confirm in stage 1** | Atmos as E-AC-3 JOC passthrough works; DD+ works; **lossless TrueHD, DTS-HD, DTS:X not passed** (firmware, shared by earlier Onn boxes) [O4]. 2024 box ⚠ same | rule in 2.5: JOC untouched to the platform decoder or sink. `AudioCapabilities` [M4]; `Spatializer` (API 32): `getImmersiveAudioLevel`, `isAvailable`, `isEnabled`, `canBeSpatialized(attributes, format)` [X3] for headphones and speakers ⚠ which path the tablet uses |
+| Display | 3200 x 2136, up to 144 Hz, 800 nits peak [X1]; HDR peak in HDR mode not stated ⚠; SoC supports up to QHD+ at 240 Hz, VRR [X2] | HDMI 2.0, 4K up to 75 Hz (2026) [O3]; the picture is the TV's | `Display.getSupportedModes()`; `setVideoChangeFrameRateStrategy` drives `Surface.setFrameRate` [M7][M8]. Whether 23.976 has an exact mode on the tablet ⚠. On the box, matching worked in Netflix but not Disney+ or Apple TV [O5]: the engine must request it itself and test it |
+| GPU effects, upscaling | Adreno 830; OpenGL ES 3.2, Vulkan 1.3, OpenCL 3.0 [X2]. Media3 effects are GL shader programs, also in `ExoPlayer.setVideoEffects` [M7][X10]; a Vulkan path would sit outside Media3 effects ⚠ | Mali GPUs, far weaker; API levels ⚠ | `scale` rung: Snapdragon GSR 1 is a single-pass GLSL upscaler, **BSD 3-Clause** [X4]; AMD FSR 1.0 is spatial, **MIT** [X5]; both fit a custom `GlEffect`. GSR 2 is a temporal upscaler for game engines (needs per-frame motion data a decoded video lacks) ⚠ inference. Qualcomm's "video super resolution" is a camera-capture feature, not a playback API [X2] |
+| NPU, ML upscaling | Hexagon NPU, INT4/8/16 and FP16 [X2]; LiteRT with the Qualcomm AI Engine Direct delegate lists SM8750 as supported [X6]; NNAPI is deprecated since Android 15, do not build on it [X7] | none listed in any source ⚠; `neural` rung unavailable | `neural` rung only if LiteRT reports the delegate. Budget: 41.7 ms a frame at 24 fps, 16.7 ms at 60 fps. Google's only NPU timing (a segmentation model on Galaxy S25, same SoC) is 24.9 ms [X6]: **ML super resolution at 24 fps for small models is plausible, at 60 fps or 4K output unproven ⚠**; the decoder-to-NPU frame transfer is the main risk; QNN runtime licence ⚠ check before shipping. A stage 5 spike, off by default |
+| Thermal, perf | passive cooling ⚠ (no fan stated), battery | small mains box ⚠ | `getCurrentThermalStatus`, `getThermalHeadroom` and the ADPF thermal API [A4][X8]; `PerformanceHintManager.createHintSession` (API 31; null if unsupported) for decode and effect threads [X9]; power-efficiency hint on Android 15 [X8] |
+| OS, ABI | HyperOS 3 [X1] | Android TV 12 to 14 (2024) [O2]; Android 14 (2026) [O5]; **both run a 32-bit userspace** on 64-bit hardware [O1][O5] | ship **`armeabi-v7a`** as well as `arm64-v8a` (section 4 CI); never assume 64-bit |
+
+**What the TV box covers that the tablet cannot:** passthrough to a real receiver (DD+ and Atmos yes, lossless no),
+refresh-rate switching on a real TV, tunnelling (`setTunnelingEnabled` [M5][M6]; works on neither device until tested ⚠),
+Google TV navigation (D-pad, leanback launcher; platform guidance not re-read here ⚠), a 32-bit userspace, 3 GB of
+RAM, weak GPU and no NPU, so enhancement must scale down or turn off, and DV profile 7 falling back to HDR10.
+**What the tablet covers that the box cannot:** Adreno and Hexagon enhancement, quad-speaker Atmos and `Spatializer`,
+Picture in Picture, touch, a 144 Hz panel.
+
+**Apple counterpart** (the same rungs and rules; Apple mechanism per **Enhance picture (v3.0.0)**, whose design is
+not in any branch readable when this was written ⚠, so these rows state only what the contract needs from it):
+
+| Block | Apple today | Contract need from Enhance picture (v3.0.0) |
+|---|---|---|
+| Decode | VideoToolbox verdicts (2.3) | none, uses the same snapshot |
+| GPU rung (`scale`, `shader`) | Metal ⚠ | same rung names, same `hw-state enhance=`, off at `shouldShedOptionalWork` |
+| `neural` rung | Neural Engine or GPU ⚠ | same budget rule (frame time), same off-by-default |
+| Heat, power | `ProcessInfo.thermalState`, low-power mode | one rung down at `fair`, off at `serious` |
+
 ## 4. Repository layout, fixtures, versioning, CI
 
 ### Layout (additive, nothing moves)
@@ -299,10 +351,10 @@ involved. Use `paths:` filters: `android/**` never triggers the Apple FFmpeg bui
 | Job | What |
 |---|---|
 | `android-unit` | Gradle JVM tests including vectors, lint |
-| `android-ffmpeg` | `scripts/android/build-ffmpeg.sh`: same FFmpeg tag and LGPL configure, **shared** `.so` (LGPL-friendly), `arm64-v8a` plus `x86_64` for the emulator; cached |
+| `android-ffmpeg` | `scripts/android/build-ffmpeg.sh`: same FFmpeg tag and LGPL configure, **shared** `.so` (LGPL-friendly), `arm64-v8a`, **`armeabi-v7a`** (the Onn box runs a 32-bit userspace, 3.1) and `x86_64` for the emulator; cached |
 | `android-sample` | assemble the sample APK, upload it |
 | `android-emu` | emulator smoke on KVM (needs the udev rule on 2-vCPU runners [G2]); probe and route vectors only, **no hardware verdicts** |
-| manual | real-device sheets (phone, TV box): P1 to P4, H1 to H4, F1 to F12, T1 to T9, S1 to S10 |
+| manual | real-device sheets on the Xiaomi Pad 8 Pro and the Onn 4K Pro: P1 to P4, H1 to H4, F1 to F12, T1 to T9, S1 to S10 |
 
 ## 5. Android API sketch (Kotlin, mirrors the Swift names)
 
@@ -359,11 +411,11 @@ Media3's `DataSource`; the OkHttp-based factory must keep the same range semanti
 | Stage | Scope | Exit gate |
 |---|---|---|
 | 0 | contract merged; `shared/vectors` for the existing pure functions, read by Swift tests; Android CI skeleton | vectors green in `swift test` |
-| 1 | `android/` Gradle build; **probe, route decision and playback of every shared fixture** in `:sample` (direct play, native Matroska, text subtitles) | fixtures play; probe equals `manifest.json`; P1, P2 on one phone |
-| 2 | hardware snapshot and verdicts, diagnostics lines, thermal and power rules, HDR and Dolby Vision rules | H1 to H4, F1 to F12 on a phone and a TV box |
-| 3 | audio policy (passthrough, decoders, FFmpeg extension `.so`), sidecar and bitmap subtitles, PiP | T1 to T7, S1 to S8 |
-| 4 | prewarm, TLS hook, frame extractor, scrub mode | prewarm and TLS vectors; scrub thumbnails |
-| 5 | shared native module (P7 to 8.1, audio shaping); Media3 `Transformer` for on-device transcode (HDR, DV P8 transmux [M13]); on-device remux for AVI/ASF if wanted | `dovi_tool` byte parity |
+| 1 | `android/` Gradle build; **on the Xiaomi Pad 8 Pro**: probe, route decision and playback of every shared fixture in `:sample` (direct play, native Matroska, text subtitles); records the tablet's `hw-*` snapshot as `shared/devices/xiaomi-pad-8-pro.json` | fixtures play; probe equals `manifest.json`; P1, P2 on the tablet; DV profile list, Atmos path and `Spatializer` state recorded |
+| 2 | hardware snapshot and verdicts, diagnostics lines, thermal and power rules, HDR and Dolby Vision rules, the capability ladder; the **Onn 4K Pro** joins (its snapshot recorded, 32-bit build) | H1 to H4, F1 to F12 on both; route vectors replay both snapshots plus a synthetic weak and strong one |
+| 3 | audio policy (passthrough, decoders, FFmpeg extension `.so`), sidecar and bitmap subtitles, PiP | T1 to T7, S1 to S8; passthrough and frame-rate matching on the Onn box |
+| 4 | prewarm, TLS hook, frame extractor, scrub mode; enhance `scale` and `shader` rungs as Media3 GL effects | prewarm and TLS vectors; scrub thumbnails; rung chosen per snapshot, `off` on the box if it misses the frame budget |
+| 5 | shared native module (P7 to 8.1, audio shaping); `neural` rung spike on the tablet (LiteRT, Qualcomm delegate); Media3 `Transformer` for on-device transcode (HDR, DV P8 transmux [M13]); on-device remux for AVI/ASF if wanted | `dovi_tool` byte parity; ML super resolution frame time measured |
 
 ## 6. Open decisions
 
@@ -374,7 +426,7 @@ Media3's `DataSource`; the OkHttp-based factory must keep the same range semanti
 | D3 | Android minimum API | **API 29** (thermal status, performance points, hardware flag exist from there [A1][A2][A4]); below API 34 use `Display.HdrCapabilities` |
 | D4 | Media3 version policy | **Pin exactly, stable only**: 1.11.1 now (2026-09-10) [M2]; move to 1.12 stable for the P7 fallback |
 | D5 | Where Rust or C enters | **Kotlin plus FFmpeg `.so` through stage 4.** Add a shared native module (C ABI, Android first) only for the P7 to 8.1 rewrite or audio shaping DSP; Apple keeps its Swift version until it passes the same vectors |
-| D6 | Real devices for the manual sheets | **Two**: one recent phone, one Google TV or Shield-class box (passthrough, tunnelling, per-device DV). Owner to name what he has |
+| D6 | Real devices for the manual sheets | **Resolved: both named.** Xiaomi Pad 8 Pro (primary, from stage 1) and Onn 4K Pro (TV box: passthrough, refresh-rate matching, tunnelling, weak-device degradation, from stage 2). Open detail: which Onn generation (2024 S905X4 or 2026 S905X5M); stage 1 records it |
 | D7 | Android distribution | **AAR as a release asset with a checksum**, as the XCFrameworks are; Maven later only if wanted |
 | D8 | Containers Media3 cannot read (AVI, ASF/WMV) | **Server transcode** through stage 4; on-device FFmpeg remux only on demand |
 | D9 | Package and artifact id | `io.github.nphil.videoengine`; confirm |
@@ -391,6 +443,10 @@ Media3's `DataSource`; the OkHttp-based factory must keep the same range semanti
 - **M10** [DefaultPreloadManager](https://developer.android.com/reference/androidx/media3/exoplayer/source/preload/DefaultPreloadManager). **M11** [OkHttpDataSource.Factory](https://developer.android.com/reference/androidx/media3/datasource/okhttp/OkHttpDataSource.Factory). **M12** [SubtitleParser](https://developer.android.com/reference/androidx/media3/extractor/text/SubtitleParser): PGS, DVB, VobSub, SSA, SubRip. **M13** [Transformer formats](https://developer.android.com/media/media3/transformer/supported-formats): HDR, DV P8 transmux.
 - **A1** [MediaCodecInfo](https://developer.android.com/reference/android/media/MediaCodecInfo), **A2** [VideoCapabilities](https://developer.android.com/reference/android/media/MediaCodecInfo.VideoCapabilities), **A3** [HdrCapabilities](https://developer.android.com/reference/android/view/Display.HdrCapabilities), **A4** [PowerManager](https://developer.android.com/reference/android/os/PowerManager), **A5** [network security config](https://developer.android.com/privacy-and-security/security-config), **A6** [PiP](https://developer.android.com/develop/ui/views/picture-in-picture), **A7** [16 KB pages](https://developer.android.com/guide/practices/page-sizes).
 - **G1** [Ubuntu runner image](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md): SDK and NDK. **G2** [KVM on Linux runners](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available).
+- **X1** [Xiaomi Pad 8 Pro specs](https://www.mi.com/global/product/xiaomi-pad-8-pro/specs/) and [overview](https://www.mi.com/global/product/xiaomi-pad-8-pro) ("Dolby Vision and Dolby Atmos supported"). **X2** [Snapdragon 8 Elite product brief](https://www.qualcomm.com/content/dam/qcomm-martech/dm-assets/documents/Snapdragon-8-Elite-SM8750-3-AB-Product-Brief.pdf): decoders, HDR, Adreno APIs, display, NPU.
+- **X3** [Spatializer](https://developer.android.com/reference/android/media/Spatializer) (API 32). **X4** [Snapdragon GSR](https://github.com/SnapdragonStudios/snapdragon-gsr) (BSD 3-Clause). **X5** [FidelityFX FSR 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR) (MIT).
+- **X6** [LiteRT Qualcomm NPU](https://ai.google.dev/edge/litert/android/npu/qualcomm). **X7** [NNAPI migration guide](https://developer.android.com/ndk/guides/neuralnetworks/migration-guide). **X8** [ADPF](https://developer.android.com/games/optimize/adpf). **X9** [PerformanceHintManager](https://developer.android.com/reference/android/os/PerformanceHintManager). **X10** [Media3 transformations and effects](https://developer.android.com/media/media3/transformer/transformations).
+- **O1** [AFTVnews, Onn 4K Pro 2024](https://www.aftvnews.com/walmart-releases-50-onn-4k-pro-streamer-w-32gb-storage-3gb-ram-wifi-6-hands-free-voice-control-and-more/). **O2** [Android TV Guide, 2024 box](https://www.androidtv-guide.com/streaming-gaming/onn-walmart-4k-pro-gtv/). **O3** [AndroidPCtv, 2026 box](https://androidpctv.com/walmart-onn-4k-pro-streaming-device-2026). **O4** [AFTVnews passthrough test, 2026 box](https://www.aftvnews.com/2nd-gen-onn-4k-pro-does-not-support-lossless-dolby-truehd-and-dtsx-audio-passthrough-like-the-onn-4k-stick). **O5** [Lon.TV review, 2026 box](https://blog.lon.tv/2026/05/10/new-onn-4k-pro-streaming-box-review-2026-version). Walmart's own listing (snippet only) states 32 GB, 3 GB RAM, Dolby Vision and Atmos. These are reviews and spec aggregators, not Walmart or Google spec sheets: treat Onn rows as secondary until read on the box.
 
 No GPL or LGPL player source was read. The *2.2.0* "design after" notes in ENGINE.md refer to a third-party LGPL project's
 documentation only; the Android design here comes from Android's own documentation.
