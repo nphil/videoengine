@@ -9,6 +9,7 @@ import Testing
 /// Picture subtitles read as text for Picture in Picture. A real remux over a picture stream cannot be
 /// tested, as FFmpeg cannot encode PGS, DVB or VobSub from text, so these cover everything below the
 /// demuxer: Vision on drawn text, the worker, the renditions the run offers and what it serves.
+@Suite(.serialized)
 struct PictureTextTests {
     // MARK: Drawing
 
@@ -81,34 +82,60 @@ struct PictureTextTests {
 
     // MARK: Vision
 
-    @Test func readsDrawnTextFromAnImage() throws {
-        let lines = try PictureText.recognize(Self.paper("Hello world"), languages: nil)
-        #expect(PictureText.arrange(lines).lowercased() == "hello world")
+    /// Runs `work` off the test's thread and gives up after `seconds` (nil): Vision has stalled on
+    /// simulators, and a test that hangs holds up the whole run.
+    private static func within<T: Sendable>(_ seconds: Double = 90, _ work: @escaping @Sendable () -> T) async -> T? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+            let answered = OSAllocatedUnfairLock(initialState: false)
+            @Sendable func answer(_ value: T?) {
+                let first = answered.withLock { taken -> Bool in
+                    let was = taken
+                    taken = true
+                    return !was
+                }
+                if first { continuation.resume(returning: value) }
+            }
+            DispatchQueue.global(qos: .userInitiated).async { answer(work()) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { answer(nil) }
+        }
     }
 
-    @Test func readsAPictureSubtitleWithAnOutline() throws {
+    /// What Vision reads from the pictures of one event, lower-cased; empty when it reads nothing.
+    private static func read(_ bitmaps: [SubtitleBitmap]) async throws -> String {
+        let recognizer = Self.recognizer()
+        let text = await within { recognizer.text(of: bitmaps) ?? "" }
+        return try #require(text, "Vision did not answer within 90 s").lowercased()
+    }
+
+    @Test func readsDrawnTextFromAnImage() async throws {
+        let image = try Self.paper("Hello world")
+        let text = await Self.within { PictureText.arrange((try? PictureText.recognize(image, languages: nil)) ?? []) }
+        #expect(try #require(text, "Vision did not answer within 90 s").lowercased() == "hello world")
+    }
+
+    @Test func readsAPictureSubtitleWithAnOutline() async throws {
         let picture = try Self.bitmap("Hello world", ink: .white, outline: true)
-        #expect(Self.recognizer().text(of: [picture])?.lowercased() == "hello world")
+        #expect(try await Self.read([picture]) == "hello world")
     }
 
-    @Test func readsDarkTextOnTransparency() throws {
+    @Test func readsDarkTextOnTransparency() async throws {
         let picture = try Self.bitmap("Hello world", ink: .black)
-        #expect(Self.recognizer().text(of: [picture])?.lowercased() == "hello world")
+        #expect(try await Self.read([picture]) == "hello world")
     }
 
-    @Test func readsSmallDVDCanvases() throws {
+    @Test func readsSmallDVDCanvases() async throws {
         let picture = try Self.bitmap("Hello world", ink: .white, outline: true, y: 400, canvas: (720, 480), size: 30)
-        #expect(Self.recognizer().text(of: [picture])?.lowercased() == "hello world")
+        #expect(try await Self.read([picture]) == "hello world")
     }
 
-    @Test func readsTheLinesOfAnEventTopToBottom() throws {
+    @Test func readsTheLinesOfAnEventTopToBottom() async throws {
         // The lower picture first: the order of the pictures is not the order of the lines.
         let lower = try Self.bitmap("Good morning", ink: .white, outline: true, y: 940)
         let upper = try Self.bitmap("Hello world", ink: .white, outline: true, y: 820)
-        #expect(Self.recognizer().text(of: [lower, upper])?.lowercased() == "hello world\ngood morning")
+        #expect(try await Self.read([lower, upper]) == "hello world\ngood morning")
     }
 
-    @Test func readsNothingFromABlankPicture() throws {
+    @Test func readsNothingFromABlankPicture() {
         let blank = SubtitleBitmap(
             start: 0, end: 1, x: 0, y: 0, width: 200, height: 60, canvasWidth: 1920, canvasHeight: 1080,
             rgba: Data(count: 200 * 60 * 4)
