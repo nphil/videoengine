@@ -11,16 +11,23 @@ struct AudioRemuxTests {
         var audioPlans: [String]
     }
 
+    /// What a run that did not finish saw, as the text of the error that fails the test.
+    private struct Unfinished: Error, CustomStringConvertible {
+        var description: String
+    }
+
     private func remux(_ fixture: URL, audio: AudioPolicy) async throws -> Outcome {
         var options = RemuxOptions()
         options.audio = audio
         let plans = OSAllocatedUnfairLock(initialState: [String]())
+        let lines = OSAllocatedUnfairLock(initialState: [String]())
         let logger = EngineLogger(
             event: { tag, fields in
+                lines.withLock { $0.append("\(tag) \(fields.map { "\($0.0)=\($0.1)" }.joined(separator: " "))") }
                 guard tag == "remux-plan", let plan = fields.first(where: { $0.0 == "audio" })?.1 else { return }
                 plans.withLock { $0.append(plan) }
             },
-            message: { _ in }
+            message: { text in lines.withLock { $0.append(text) } }
         )
         let session = RemuxSession(sourceFactory: { try FileRangeSource(fileURL: fixture) }, options: options, logger: logger)
         defer { session.stop() }
@@ -31,22 +38,25 @@ struct AudioRemuxTests {
         }
         defer { watchdog.cancel() }
         let playlistURL = try await session.start()
-        var finished = false
+        var ending = "no end event"
         events: for await event in session.events {
             switch event {
             case .finished:
-                finished = true
+                ending = "finished"
                 break events
             case .failed(let error, _):
-                Issue.record("remux failed: \(error)")
+                ending = "failed: \(error)"
                 break events
             case .stopped:
+                ending = "stopped"
                 break events
             default:
                 continue
             }
         }
-        #expect(finished)
+        guard ending == "finished" else {
+            throw Unfinished(description: "\(ending)\n" + lines.withLock { $0 }.suffix(40).joined(separator: "\n"))
+        }
         let (master, _) = try await URLSession.shared.data(from: playlistURL)
         return Outcome(master: String(decoding: master, as: UTF8.self), audioPlans: plans.withLock { $0 })
     }
