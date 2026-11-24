@@ -128,6 +128,55 @@ session.stop()
 - `RemuxSession.sweepStaleFiles(in:prefixes:)` removes temp files a killed
   process left behind; call it at launch.
 
+### E-AC-3 for surround that is re-encoded (v2.2.0+)
+
+Design after AetherEngine's documented feature; no code taken.
+
+By default, surround the engine cannot copy (TrueHD, MLP, DTS and DTS-HD,
+Opus or Vorbis in 5.1, multichannel FLAC and ALAC) is decoded, mixed to
+5.1(side) and encoded to AAC at 384 kbit/s. With
+`options.audio.surroundCodec = .eac3` the same audio is encoded to E-AC-3 5.1
+at `options.audio.eac3BitRate` (640 kbit/s by default) with FFmpeg's own
+`eac3` encoder instead, which keeps a Dolby surround track in place of AAC.
+
+- Off by default: `surroundCodec` is `.aac`, and nothing changes for an
+  existing caller.
+- Only audio that is re-encoded and has more than two channels is affected.
+  Mono and stereo stay AAC, and a stream that is copied (AC-3, E-AC-3, AAC)
+  stays a copy.
+- E-AC-3 output gets `delay_moov` like an E-AC-3 copy, since the muxer builds
+  the `ec-3` sample entry from the first packet; the master playlist declares
+  `ec-3`.
+- If the muxer fails before the first segment, the run starts again once with
+  AAC, as it does for a failed copy.
+- The pinned FFmpeg n9.0.2 binaries carry the `eac3` encoder (`smoke.c`
+  checks for it). It is not yet played back on a device: see T8.
+
+### Audio shaping (v2.2.0+)
+
+Design after AetherEngine's documented feature; no code taken.
+
+`options.audio.shaping` is an `AudioShaping(delay:dialogueLift:nightMode:)`:
+
+| Setting | Effect |
+|---|---|
+| `delay` | seconds the sound moves later (positive) or earlier (negative), up to 2 either way, in whole milliseconds; for lip sync |
+| `dialogueLift` | 0 to 12 dB added to speech: the centre channel on 5.1, the part of the mix both sides share on stereo (the sides stay) |
+| `nightMode` | compressor (threshold about -24 dBFS, 4:1, 6 dB make-up) and a limiter at 0.9, so loud passages come closer to quiet ones |
+
+- **Shaping runs only when the audio is re-encoded, and choosing any of it
+  forces a re-encode.** A stream that would have been copied (AAC, AC-3,
+  E-AC-3, FLAC, ALAC) is decoded and encoded again, to AAC or, for surround
+  with `surroundCodec = .eac3`, to E-AC-3. Leave `shaping` at its default to
+  keep copies.
+- The chain is built from `pan` (lift), `acompressor` and `alimiter` (night
+  mode), then `adelay` (later) or `atrim` (earlier), in that order. All are
+  in the full non-GPL filter set the pinned binaries carry. The delay works in
+  samples before the encoder, so timestamps and the video are untouched.
+- A later delay adds its length of sound at the end; an earlier one drops the
+  start.
+- The retry after a muxer failure is AAC and keeps the shaping.
+
 ### Transcode
 
 `FileTranscoder` re-encodes a local file in one VideoToolbox pass;
@@ -336,6 +385,8 @@ while playing, then seek twice.
 | T4 | TrueHD and DTS family with one tone per channel | AAC 5.1: each tone on its speaker, no clipping |
 | T5 / T6 | FLAC/ALAC stereo copy; MP3, Opus, Vorbis, MP2 re-encode | plays; record any silence or error |
 | T7 | AAC-LC, HE-AAC, AAC with a program config element | the first two copy, the third re-encodes; all play |
+| T8 | TrueHD and DTS family with `surroundCodec = .eac3`, one tone per channel | master `CODECS` has `ec-3`; plays from the first segment; each tone on its speaker; AirPods Pro report Dolby |
+| T9 | flash-and-beep clip with `shaping.delay` of -0.2, 0 and +0.2 s; then `dialogueLift` 6 and `nightMode` | the beep moves 200 ms earlier and later against the flash; speech louder against effects; loud passages quieter |
 
 ### Subtitles
 

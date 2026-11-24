@@ -4,7 +4,8 @@ import Libavformat
 import Libavutil
 import Libswresample
 
-/// Decodes one audio stream and encodes it to AAC for the MP4 output. Encoded packets carry timestamps in
+/// Decodes one audio stream and encodes it to AAC, or E-AC-3 5.1, for the MP4 output, through an audio
+/// shaping graph when the plan asks for one. Encoded packets carry timestamps in
 /// the source stream's time base and its stream index, so they take the same origin shift as the copied
 /// streams. Confined to the remux thread.
 final class AudioReencoder {
@@ -20,9 +21,19 @@ final class AudioReencoder {
     private let fifo: OpaquePointer
     /// Next encoder timestamp, in samples; set from the first decoded frame.
     private var nextPTS: Int64?
+    /// Names the encoder in error messages.
+    private let label: String
+    /// What is applied to the decoded audio, or nil when it goes to the encoder as it is.
+    private let shaping: AudioShaping?
+    /// Built from the first decoded frame, whose format the graph needs.
+    private var shaper: AudioShaper?
 
-    /// Opens the decoder for `stream` and an AAC encoder, and describes the encoded audio on `output`.
-    init(stream: UnsafeMutablePointer<AVStream>, output: UnsafeMutablePointer<AVStream>, channels: Int, bitRate: Int) throws {
+    /// Opens the decoder for `stream` and an encoder for `encoding`, and describes the encoded audio on
+    /// `output`.
+    init(
+        stream: UnsafeMutablePointer<AVStream>, output: UnsafeMutablePointer<AVStream>, channels: Int, bitRate: Int,
+        encoding: AudioPlan.Encoding = .aac, shaping: AudioShaping? = nil
+    ) throws {
         let parameters: UnsafeMutablePointer<AVCodecParameters> = stream.pointee.codecpar
         let codecName = String(cString: avcodec_get_name(parameters.pointee.codec_id))
         guard let decoderCodec = avcodec_find_decoder(parameters.pointee.codec_id) else {
@@ -43,10 +54,21 @@ final class AudioReencoder {
         result = avcodec_open2(decoder.pointer, decoderCodec, &decoderOptions)
         guard result >= 0 else { throw VideoEngineError.failure("open \(codecName) decoder", result) }
 
-        // AudioToolbox's encoder when the build has it, FFmpeg's own otherwise.
-        guard let encoderCodec = avcodec_find_encoder_by_name("aac_at") ?? avcodec_find_encoder(AV_CODEC_ID_AAC) else {
-            throw VideoEngineError.encoderUnavailable(name: "aac")
+        let label = encoding == .eac3 ? "E-AC-3" : "AAC"
+        let encoderCodec: UnsafePointer<AVCodec>
+        switch encoding {
+        case .aac:
+            // AudioToolbox's encoder when the build has it, FFmpeg's own otherwise.
+            guard let found = avcodec_find_encoder_by_name("aac_at") ?? avcodec_find_encoder(AV_CODEC_ID_AAC) else {
+                throw VideoEngineError.encoderUnavailable(name: "aac")
+            }
+            encoderCodec = found
+        case .eac3:
+            guard let found = avcodec_find_encoder(AV_CODEC_ID_EAC3) else { throw VideoEngineError.encoderUnavailable(name: "eac3") }
+            encoderCodec = found
         }
+        self.label = label
+        self.shaping = shaping.flatMap { $0.isActive ? $0 : nil }
         encoder = try FFCodecContext(codec: encoderCodec)
         let context = encoder.pointer
         context.pointee.sample_fmt = Self.supported(AV_CODEC_CONFIG_SAMPLE_FORMAT, context, encoderCodec, as: AVSampleFormat.self)?
@@ -59,7 +81,7 @@ final class AudioReencoder {
             .first(where: { Int($0.nb_channels) == channels }) {
             var chosen = layout
             result = av_channel_layout_copy(&context.pointee.ch_layout, &chosen)
-            guard result >= 0 else { throw VideoEngineError.failure("set AAC channel layout", result) }
+            guard result >= 0 else { throw VideoEngineError.failure("set \(label) channel layout", result) }
         } else {
             av_channel_layout_default(&context.pointee.ch_layout, Int32(channels))
         }
@@ -67,10 +89,12 @@ final class AudioReencoder {
         context.pointee.time_base = AVRational(num: 1, den: context.pointee.sample_rate)
         // MP4 keeps the AudioSpecificConfig in the sample entry.
         context.pointee.flags |= FF.codecFlagGlobalHeader
+        // FFmpeg has marked its E-AC-3 encoder experimental in some releases.
+        if encoding == .eac3 { context.pointee.strict_std_compliance = FF.complianceExperimental }
         result = avcodec_open2(context, encoderCodec, nil)
-        guard result >= 0 else { throw VideoEngineError.failure("open AAC encoder", result) }
+        guard result >= 0 else { throw VideoEngineError.failure("open \(label) encoder", result) }
         result = avcodec_parameters_from_context(output.pointee.codecpar, context)
-        guard result >= 0 else { throw VideoEngineError.failure("describe AAC stream", result) }
+        guard result >= 0 else { throw VideoEngineError.failure("describe \(label) stream", result) }
         output.pointee.time_base = context.pointee.time_base
         self.channels = context.pointee.ch_layout.nb_channels
 
@@ -91,7 +115,7 @@ final class AudioReencoder {
         av_audio_fifo_free(fifo)
     }
 
-    /// Takes a source packet's reference, or nil at the end of the stream, and returns the AAC packets
+    /// Takes a source packet's reference, or nil at the end of the stream, and returns the encoded packets
     /// ready so far. A packet the decoder rejects loses its samples, not the run.
     func process(_ packet: UnsafeMutablePointer<AVPacket>?) throws -> [FFPacket] {
         _ = avcodec_send_packet(decoder.pointer, packet)
@@ -105,18 +129,36 @@ final class AudioReencoder {
                 let start = decoded.pointer.pointee.best_effort_timestamp
                 nextPTS = start == FF.noPTS ? 0 : av_rescale_q(start, sourceTimeBase, encoder.pointer.pointee.time_base)
             }
-            try resample(decoded.pointer)
+            try shape(decoded.pointer)
             av_frame_unref(decoded.pointer)
             try encode(into: &output, final: false)
         }
         if packet == nil {
+            try shape(nil)
+            try encode(into: &output, final: false)
             try resample(nil)
             try encode(into: &output, final: true)
             let flushed = avcodec_send_frame(encoder.pointer, nil)
-            guard flushed >= 0 || flushed == FF.averrorEOF else { throw VideoEngineError.failure("flush AAC encoder", flushed) }
+            guard flushed >= 0 || flushed == FF.averrorEOF else { throw VideoEngineError.failure("flush \(label) encoder", flushed) }
             try receive(into: &output)
         }
         return output
+    }
+
+    /// Passes a decoded frame, or nil at the end of the stream, through the shaping graph, if the plan has
+    /// one, and into the FIFO.
+    private func shape(_ frame: UnsafeMutablePointer<AVFrame>?) throws {
+        guard let shaping else {
+            if let frame { try resample(frame) }
+            return
+        }
+        if shaper == nil {
+            // Nothing was decoded, so there is nothing to flush.
+            guard let frame,
+                  let chain = shaping.filterChain(channels: Int(channels), sampleRate: Int(frame.pointee.sample_rate)) else { return }
+            shaper = try AudioShaper(chain: chain, matching: frame)
+        }
+        try shaper?.push(frame) { try resample($0) }
     }
 
     /// Converts a decoded frame, or the resampler's remaining samples for nil, into the FIFO.
@@ -152,9 +194,9 @@ final class AudioReencoder {
             input.pointee.format = context.pointee.sample_fmt.rawValue
             input.pointee.sample_rate = context.pointee.sample_rate
             var result = av_channel_layout_copy(&input.pointee.ch_layout, &context.pointee.ch_layout)
-            guard result >= 0 else { throw VideoEngineError.failure("set AAC frame layout", result) }
+            guard result >= 0 else { throw VideoEngineError.failure("set \(label) frame layout", result) }
             result = av_frame_get_buffer(input, 0)
-            guard result >= 0 else { throw VideoEngineError.failure("allocate AAC frame", result) }
+            guard result >= 0 else { throw VideoEngineError.failure("allocate \(label) frame", result) }
             let read = input.pointee.extended_data.withMemoryRebound(to: UnsafeMutableRawPointer?.self, capacity: Int(channels)) {
                 av_audio_fifo_read(fifo, $0, count)
             }

@@ -225,19 +225,19 @@ struct Remuxer: Sendable {
         if run.claimTerminal() { emit(outcome) }
     }
 
-    /// Runs the remux; when a copied audio stream breaks the muxer before any segment is published, runs
-    /// it once more with that audio re-encoded.
+    /// Runs the remux; when copied or E-AC-3 audio breaks the muxer before any segment is published, runs
+    /// it once more with that audio re-encoded to AAC.
     private func remux() throws {
-        var copiedAudio = false
+        var retryableAudio = false
         do {
-            try remux(forceAudioReencode: false, copiedAudio: &copiedAudio)
-        } catch let error as VideoEngineError where copiedAudio && !run.control.isStopped && (run.index?.segmentCount ?? 0) == 0 {
+            try remux(forceAudioReencode: false, retryableAudio: &retryableAudio)
+        } catch let error as VideoEngineError where retryableAudio && !run.control.isStopped && (run.index?.segmentCount ?? 0) == 0 {
             logger.event("remux-audio-retry", [("error", error.localizedDescription)])
-            try remux(forceAudioReencode: true, copiedAudio: &copiedAudio)
+            try remux(forceAudioReencode: true, retryableAudio: &retryableAudio)
         }
     }
 
-    private func remux(forceAudioReencode: Bool, copiedAudio: inout Bool) throws {
+    private func remux(forceAudioReencode: Bool, retryableAudio: inout Bool) throws {
         let source = try makeSource()
         run.attach(source)
         let opening = StageTimer("open")
@@ -252,7 +252,7 @@ struct Remuxer: Sendable {
 
         let videoIndex = Self.videoStream(of: input.context)
         let audio = AudioPlan.decide(Self.audioFacts(of: input.context), policy: options.audio, forceReencode: forceAudioReencode)
-        copiedAudio = audio?.copiedCodec != nil
+        retryableAudio = audio?.retriesAsAAC ?? false
         let plan = Self.plan(for: input.context, videoIndex: videoIndex, audio: audio, options: options)
         logger.event("remux-plan", [
             ("tag", plan.videoTag ?? "auto"), ("dolby-vision", "\(plan.dolbyVision)"),
@@ -338,7 +338,8 @@ struct Remuxer: Sendable {
             videoCodec = String(cString: avcodec_get_name(parameters.pointee.codec_id))
             record = dolbyVisionRecord(of: parameters)
         }
-        let audioCodecs = audio?.copiedCodec.map { [$0] } ?? []
+        // For E-AC-3 the muxer builds its sample entry from the first packet, copied or encoded.
+        let audioCodecs = audio.map { [$0.outputCodec] } ?? []
         return MuxPlan.decide(videoCodec: videoCodec, dolbyVision: record, audioCodecs: audioCodecs, options: options)
     }
 
@@ -408,8 +409,11 @@ struct Remuxer: Sendable {
             guard let outStream = avformat_new_stream(output, nil) else { throw VideoEngineError.outOfMemory }
             mapping[i] = Int(outStream.pointee.index)
             let parametersOut: UnsafeMutablePointer<AVCodecParameters> = outStream.pointee.codecpar
-            if i != videoIndex, case .reencode(let channels, let bitRate) = audio?.action {
-                reencoder = try AudioReencoder(stream: stream, output: outStream, channels: channels, bitRate: bitRate)
+            if i != videoIndex, case .reencode(let channels, let bitRate, let encoding) = audio?.action {
+                reencoder = try AudioReencoder(
+                    stream: stream, output: outStream, channels: channels, bitRate: bitRate, encoding: encoding,
+                    shaping: audio?.shaping
+                )
                 continue
             }
             var filterName: String?
