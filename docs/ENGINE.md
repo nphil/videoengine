@@ -128,6 +128,75 @@ session.stop()
 - `RemuxSession.sweepStaleFiles(in:prefixes:)` removes temp files a killed
   process left behind; call it at launch.
 
+### Seek back without a restart (v2.2.0+)
+
+`seek(to:)` always starts a new run: the item is replaced and the source read
+again from the keyframe before the target. `seekReusing(to:)` is additive and
+keeps the run when the target is already in what it sealed:
+
+```swift
+let seek = try await session.seekReusing(to: target)
+if seek.reused {
+    await item.seek(to: CMTime(seconds: seek.itemTime!, preferredTimescale: 600))   // same item, same URL
+} else {
+    // a new run, as after seek(to:): replace the item with seek.url, then seek it to
+    // target - origin once .timeline(origin:) arrives
+}
+```
+
+- **When it reuses.** The run is alive (not stopped, not failed), its origin is
+  known, and `0 <= target - origin < sealed duration`, the sum of the segment
+  durations in the playlist (`FragmentIndex.sealedDuration`). Nothing is
+  downloaded or muxed again. A run that has finished counts too: its whole
+  playlist is sealed.
+- **Otherwise** it is `seek(to:)`: a target before the run's start (an earlier
+  keyframe was never read), past what is sealed, or after a failed run. A
+  target a few seconds past the sealed edge starts a new run rather than
+  waiting for the old one.
+- **Pacing.** `seekReusing` moves the run's playhead to `itemTime` at once, and
+  the pace gate follows a playhead that moves back, so production does not wait
+  for it. Keep calling `updatePlayhead`.
+- **Limits.** Audio and subtitle choices are fixed per session by `options`, so
+  every run matches them; an app that changes the audio stream starts a new
+  session. No keyframe or sample-accurate seek: AVPlayer lands inside the
+  listed segment as it does for any HLS seek.
+
+Design after AetherEngine's documented seek-back behaviour; no code taken.
+
+### Dolby Vision profile 7 as 8.1 (v2.2.0+)
+
+By default profile 7 is cut to its HDR10 base layer. With
+`options.dolbyVision = .profile7AsProfile8` it stays Dolby Vision as
+single-layer profile 8.1 (opt-in; nothing else changes):
+
+- The enhancement layer (NAL type 63, or any NAL with `nuh_layer_id` above 0)
+  is dropped from every video packet.
+- Each RPU (NAL type 62) is rewritten to profile 8.1, the conversion
+  `dovi_tool` calls mode 2: the enhancement-layer mapping (NLQ) is removed,
+  the residual flag is set, extension blocks are re-aligned and the CRC-32 is
+  recomputed. `DolbyVisionRPU` does this in Swift, bit for bit, since FFmpeg's
+  `dovi_rpu` filter can strip an RPU but not convert one. An RPU that cannot be
+  followed (an unknown layout) is dropped, and the stream plays as HDR10 there;
+  the run logs `remux-dv-profile81` with the counts.
+- The record is written as profile 8, compatibility ID 1 (`dvvC` on an `hvc1`
+  entry), at the source's level. The multivariant playlist then carries
+  `SUPPLEMENTAL-CODECS="dvh1.08.xx/db1p"` with `VIDEO-RANGE=PQ`, the same as for
+  a native 8.1 file.
+- **Applies to** a profile 7 record with RPU and a base layer, from the file or
+  from `dolbyVisionFallback`, in a stream whose RPUs travel in the video
+  packets: single-track MKV and MP4, MEL or FEL. A dual-track file whose RPU
+  exists only in the separate enhancement track has nothing to convert in the
+  base track; it plays without Dolby Vision metadata.
+- **Cost.** A full enhancement layer's detail is discarded, as in any 7 to 8.1
+  conversion; a minimal one loses nothing. The rewrite touches only the video
+  packets that carry an RPU or enhancement layer.
+- **Tests.** The rewrite is checked byte for byte against real MEL and FEL RPUs
+  and their `dovi_tool convert --mode 2` output (quietvoid/dovi_tool, MIT).
+  Add the device sheet row F7 / F8 with the option on: Dolby Vision on a
+  display that supports it, HDR10 elsewhere.
+
+Design after AetherEngine's documented feature; no code taken.
+
 ### Transcode
 
 `FileTranscoder` re-encodes a local file in one VideoToolbox pass;

@@ -13,6 +13,7 @@ final class RemuxRun: Sendable {
         var playerWaiting = false
         var sourceSize: Int64?
         var complete = false
+        var failed = false
         var terminalSent = false
         var source: (any ByteRangeSource)?
         var index: FragmentIndex?
@@ -50,6 +51,8 @@ final class RemuxRun: Sendable {
     }
     var bytesWritten: Int64 { state.withLock { $0.progress.bytesWritten } }
     var isComplete: Bool { state.withLock { $0.complete } }
+    /// True once the run ended in an error: what it sealed is still on disk, but nothing more will come.
+    var isFailed: Bool { state.withLock { $0.failed } }
     var playhead: TimeInterval { state.withLock { $0.playhead } }
     var playerWaiting: Bool { state.withLock { $0.playerWaiting } }
     var sourceSize: Int64? { state.withLock { $0.sourceSize } }
@@ -144,6 +147,8 @@ final class RemuxRun: Sendable {
     /// Called after the trailer is on disk, so a reader that sees `isComplete` also sees the final size.
     func markComplete() { state.withLock { $0.complete = true } }
 
+    func markFailed() { state.withLock { $0.failed = true } }
+
     func stop() {
         control.stop()
         state.withLock { $0.source }?.cancel()
@@ -196,6 +201,7 @@ struct Remuxer: Sendable {
             if run.control.isStopped || error is CancellationError {
                 outcome = .stopped(run.progress)
             } else {
+                run.markFailed()
                 outcome = .failed((error as? VideoEngineError) ?? .readFailed(code: FF.eio), run.progress)
             }
         }
@@ -288,9 +294,13 @@ struct Remuxer: Sendable {
         }
         try writeHeader(output, plan: plan)
         announceWhenReady()
+        var profile81: DolbyVisionProfile81Converter?
+        if case .convertToProfile81 = plan.dolbyVision {
+            profile81 = Self.profile81Converter(for: input.context, videoIndex: videoIndex)
+        }
         try copyPackets(
             from: input, to: output, mapping: mapping, videoIndex: videoIndex, filters: filters, reencoder: reencoder,
-            subtitles: subtitles, sealer: sealer, afterWrite: announceWhenReady
+            subtitles: subtitles, profile81: profile81, sealer: sealer, afterWrite: announceWhenReady
         )
         run.markComplete()
         index.finish()
@@ -326,6 +336,20 @@ struct Remuxer: Sendable {
             }
         }
         return -1
+    }
+
+    /// The converter for a profile 7 stream's packets: length-prefixed NAL units as the `hvcC` record says,
+    /// else Annex B.
+    private static func profile81Converter(
+        for format: UnsafeMutablePointer<AVFormatContext>, videoIndex: Int
+    ) -> DolbyVisionProfile81Converter? {
+        guard videoIndex >= 0, let parameters = format.pointee.streams[videoIndex]?.pointee.codecpar else { return nil }
+        var lengthSize = 0
+        if let extradata = parameters.pointee.extradata {
+            let record = UnsafeBufferPointer(start: extradata, count: Int(parameters.pointee.extradata_size))
+            lengthSize = DolbyVisionProfile81Converter.lengthSize(ofHVCC: record)
+        }
+        return DolbyVisionProfile81Converter(nalLengthSize: lengthSize)
     }
 
     /// The mux plan for the chosen video stream and the audio the run copies.
@@ -446,7 +470,8 @@ struct Remuxer: Sendable {
         var sides = parameters.pointee.coded_side_data
         var count = parameters.pointee.nb_coded_side_data
         switch plan.dolbyVision {
-        case .add(let record):
+        case .add(let record), .convertToProfile81(let record):
+            // Replaces a record of the same type that the copied parameters already carry.
             guard let side = av_packet_side_data_new(
                 &sides, &count, AV_PKT_DATA_DOVI_CONF, MemoryLayout<AVDOVIDecoderConfigurationRecord>.size, 0
             ) else { throw VideoEngineError.outOfMemory }
@@ -530,8 +555,9 @@ struct Remuxer: Sendable {
     private func copyPackets(
         from input: DemuxInput, to output: MuxOutput, mapping: [Int], videoIndex: Int,
         filters: [Int: FFBitstreamFilter], reencoder: AudioReencoder?, subtitles: [Int: SubtitleTap],
-        sealer: FragmentSealer, afterWrite: () -> Void
+        profile81 converter: DolbyVisionProfile81Converter?, sealer: FragmentSealer, afterWrite: () -> Void
     ) throws {
+        var profile81 = converter
         let textTracks = run.subtitles.compactMap(\.webVTT)
         let reading = try FFPacket()
         let filtered = try FFPacket()
@@ -634,6 +660,29 @@ struct Remuxer: Sendable {
             if heldStreams == copied || held.count >= Self.heldPacketLimit { try release() }
         }
 
+        /// Drops the enhancement layer from a profile 7 packet and rewrites its RPU. False when no NAL unit
+        /// is left to write.
+        func convertToProfile81(_ packet: UnsafeMutablePointer<AVPacket>) throws -> Bool {
+            guard packet.pointee.size > 0, let data = packet.pointee.data,
+                  let rewritten = profile81?.convert(UnsafeBufferPointer(start: data, count: Int(packet.pointee.size))) else {
+                return true
+            }
+            guard !rewritten.isEmpty else { return false }
+            let scratch = filtered.pointer
+            av_packet_unref(scratch)
+            let created = av_new_packet(scratch, Int32(rewritten.count))
+            guard created >= 0 else { throw VideoEngineError.failure("rewrite Dolby Vision packet", created) }
+            let propertied = av_packet_copy_props(scratch, packet)
+            guard propertied >= 0 else {
+                av_packet_unref(scratch)
+                throw VideoEngineError.failure("rewrite Dolby Vision packet", propertied)
+            }
+            rewritten.withUnsafeBytes { _ = memcpy(scratch.pointee.data, $0.baseAddress!, $0.count) }
+            av_packet_unref(packet)
+            av_packet_move_ref(packet, scratch)
+            return true
+        }
+
         var gate = PaceGate(lead: options.paceLeadSeconds, headroom: TimeInterval(sealer.index.targetDuration))
         let mediaBytesPerSecond = Self.mediaBytesPerSecond(of: input.context, size: run.sourceSize)
         run.control.extendDeadline(by: options.stallTimeout)
@@ -671,6 +720,10 @@ struct Remuxer: Sendable {
             } else if let reencoder, inIndex == reencoder.streamIndex {
                 for owner in try reencoder.process(packet) { try deliver(owner.pointer) }
             } else {
+                if inIndex == videoIndex, profile81 != nil, try !convertToProfile81(packet) {
+                    av_packet_unref(packet)
+                    continue
+                }
                 try deliver(packet)
             }
         }
@@ -682,6 +735,12 @@ struct Remuxer: Sendable {
             for owner in try reencoder.process(nil) { try deliver(owner.pointer) }
         }
         if shifts == nil, !held.isEmpty { try release() }
+        if let profile81 {
+            logger.event("remux-dv-profile81", [
+                ("rpus", String(profile81.rewrittenRPUs)), ("rpus-dropped", String(profile81.droppedRPUs)),
+                ("layer-units-removed", String(profile81.removedLayerUnits)),
+            ])
+        }
         let trailer = av_write_trailer(output.context)
         guard trailer >= 0 else { throw VideoEngineError.writeFailed(code: trailer) }
         for tap in subtitles.values { tap.finish() }

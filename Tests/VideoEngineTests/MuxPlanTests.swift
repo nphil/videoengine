@@ -48,4 +48,28 @@ struct MuxPlanTests {
         #expect(ac3.muxerOptions["use_editlist"] == "0")
         #expect(!plan(nil).movflags.contains("delay_moov"))
     }
+
+    @Test func profile7BecomesSingleLayerProfile81OnlyWhenAsked() {
+        let p7 = DolbyVisionConfiguration(profile: 7, level: 6, compatibilityID: 6, hasEnhancementLayer: true)
+        var options = RemuxOptions()
+        options.dolbyVision = .profile7AsProfile8
+        let converted = plan(p7, options: options)
+        #expect(converted.dolbyVision == .convertToProfile81(
+            DolbyVisionConfiguration(profile: 8, level: 6, compatibilityID: 1, hasRPU: true, hasEnhancementLayer: false)
+        ))
+        #expect(converted.videoTag == "hvc1")
+        #expect(converted.muxerOptions["strict"] == "unofficial")
+        // Without the option, and by default, profile 7 is still cut to its base layer.
+        #expect(plan(p7).dolbyVision == .strip)
+        // A record with no RPU has nothing to convert; other profiles are as in automatic.
+        let noRPU = DolbyVisionConfiguration(profile: 7, level: 6, compatibilityID: 6, hasRPU: false, hasEnhancementLayer: true)
+        #expect(plan(noRPU, options: options).dolbyVision == .strip)
+        let p81 = DolbyVisionConfiguration(profile: 8, level: 6, compatibilityID: 1)
+        #expect(plan(p81, options: options).dolbyVision == .keep)
+        // A source with no record takes the fallback as before, and a profile 7 fallback converts too.
+        options.dolbyVisionFallback = p7
+        #expect(plan(nil, options: options).dolbyVision == .convertToProfile81(
+            DolbyVisionConfiguration(profile: 8, level: 6, compatibilityID: 1, hasRPU: true, hasEnhancementLayer: false)
+        ))
+    }
 }

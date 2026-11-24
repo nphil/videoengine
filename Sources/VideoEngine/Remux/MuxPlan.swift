@@ -16,6 +16,13 @@ public struct DolbyVisionMode: Sendable, Hashable {
     /// Profiles 7 and 8 play as their HDR10 or HLG base layer. Profile 5 has no base layer of its own and
     /// stays Dolby Vision.
     public static let baseLayerOnly = DolbyVisionMode(rawValue: "base-layer-only")
+    /// Profile 7 stays Dolby Vision as single-layer profile 8.1 (v2.2.0): the enhancement-layer NAL units
+    /// are dropped, each RPU is rewritten to profile 8.1 (the conversion `dovi_tool` calls mode 2) and the
+    /// record is written as profile 8 with compatibility ID 1, so a device without the enhancement layer
+    /// plays Dolby Vision from the base layer and the multivariant playlist offers `dvh1.08.xx` as
+    /// supplemental codecs. Other profiles behave as `.automatic`. A full enhancement layer's detail is
+    /// lost, as in any conversion to 8.1. Design after AetherEngine's documented feature; no code taken.
+    public static let profile7AsProfile8 = DolbyVisionMode(rawValue: "profile7-as-profile8")
 }
 
 /// How a run writes what it copies: the HEVC sample entry, the Dolby Vision record and the muxer flags
@@ -33,6 +40,10 @@ struct MuxPlan: Equatable {
         case drop
         /// The `dovi_rpu` filter removes the RPU and enhancement-layer NAL units along with the record.
         case strip
+        /// Profile 7 becomes single-layer profile 8.1: `DolbyVisionProfile81Converter` drops the enhancement
+        /// layer and rewrites each RPU, and this record, profile 8 with compatibility 1, replaces the
+        /// source's (or is added when it has none).
+        case convertToProfile81(DolbyVisionConfiguration)
     }
 
     /// Sample entry to force on the video stream, or nil for the muxer's choice.
@@ -75,6 +86,11 @@ struct MuxPlan: Equatable {
             plan.dolbyVision = keep
             plan.unspecifiedColour = true
             plan.movflags.append("write_colr")
+        case 7 where options.dolbyVision == .profile7AsProfile8 && record.hasRPU && record.hasBaseLayer:
+            plan.dolbyVision = .convertToProfile81(DolbyVisionConfiguration(
+                profile: 8, level: record.level, compatibilityID: 1, hasRPU: true, hasEnhancementLayer: false,
+                hasBaseLayer: true
+            ))
         case 7:
             plan.dolbyVision = .strip
         case 8 where options.dolbyVision != .baseLayerOnly && [1, 4].contains(record.compatibilityID):

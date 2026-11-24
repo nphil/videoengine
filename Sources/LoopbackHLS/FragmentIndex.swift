@@ -60,6 +60,10 @@ public final class FragmentIndex: Sendable {
     /// The longest sealed segment, in seconds; RFC 8216 requires it to round to at most `targetDuration`.
     public var longestSegment: TimeInterval { state.withLock { $0.segments.map { $0.duration }.max() ?? 0 } }
 
+    /// Seconds of media the sealed segments cover, counted from the start of the file's timeline: a position
+    /// below it is in a segment the playlist lists.
+    public var sealedDuration: TimeInterval { state.withLock { $0.segments.reduce(0) { $0 + $1.duration } } }
+
     /// The current media playlist, or nil until the init segment and one segment are sealed.
     public func playlist() -> String? {
         let snapshot = state.withLock { $0 }

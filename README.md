@@ -86,6 +86,13 @@ concurrency):
   `actualSeconds`, `bytesRead`) for
   scrub thumbnails, reading through its own `ByteRangeSource` independent of
   playback and cancellable by task cancellation.
+- `RemuxSession.seekReusing(to:)` (v2.2.0+, additive) keeps the current run
+  when a backward or nearby seek lands in what it already sealed, so seeking
+  back restarts nothing. Design after AetherEngine's documented feature.
+- `RemuxOptions.dolbyVision = .profile7AsProfile8` (v2.2.0+, opt-in) keeps
+  Dolby Vision profile 7 as single-layer 8.1 instead of stripping it to HDR10:
+  enhancement layer dropped, RPUs rewritten, `dvh1.08.xx` supplemental codecs.
+  Design after AetherEngine's documented feature; no code taken.
 - Logging goes through an `EngineLogger` the app supplies.
 
 The full API, adoption steps and device test sheets are in

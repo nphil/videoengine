@@ -2,6 +2,24 @@ import Foundation
 import LoopbackHLS
 import os
 
+/// What `RemuxSession.seekReusing(to:)` decided (v2.2.0).
+public struct RemuxSeek: Sendable, Equatable {
+    /// The playlist URL to play: the current run's when `reused`, a new run's otherwise.
+    public var url: URL
+    /// Where to seek the item, in seconds on the run's output timeline, when `reused`: the target minus the
+    /// run's timeline origin. Nil for a new run, whose origin arrives as `.timeline(origin:)`; the item is
+    /// then replaced and positioned at the target minus that origin, as after `seek(to:)`.
+    public var itemTime: TimeInterval?
+    /// True when the target was already produced: the run goes on, keep the item and seek it to `itemTime`.
+    public var reused: Bool
+
+    public init(url: URL, itemTime: TimeInterval?, reused: Bool) {
+        self.url = url
+        self.itemTime = itemTime
+        self.reused = reused
+    }
+}
+
 /// Plays a source AVPlayer cannot open directly (Matroska, for instance) by copying its audio and video
 /// into a fragmented MP4 that grows on disk and is served as HLS from 127.0.0.1. No re-encoding.
 ///
@@ -91,6 +109,17 @@ public final class RemuxSession: Sendable {
         try await launch(at: time, replacingCurrent: true)
     }
 
+    /// `seek(to:)` that keeps the current run when the target is already in what it produced (v2.2.0). A
+    /// target inside the run's sealed segments, at or after its origin, needs no new run: the item is seeked
+    /// to `itemTime` on the same URL, with nothing downloaded again, and pacing follows the playhead as it
+    /// moves back. Any other target, including one past what the run has sealed, or after a failed run,
+    /// behaves as `seek(to:)`. Audio and subtitle choices are fixed by `options`, so a run's output always
+    /// matches them. Design after AetherEngine's documented feature; no code taken.
+    public func seekReusing(to time: TimeInterval) async throws -> RemuxSeek {
+        if let reuse = try reusableSeek(to: time) { return reuse }
+        return RemuxSeek(url: try await launch(at: time, replacingCurrent: true), itemTime: nil, reused: false)
+    }
+
     /// The player's position on the current run's timeline; production waits once it is
     /// `paceLeadSeconds` ahead of it, then keeps step with it.
     public func updatePlayhead(_ seconds: TimeInterval) {
@@ -175,6 +204,30 @@ public final class RemuxSession: Sendable {
         thread.qualityOfService = .userInitiated
         thread.start()
         return active.url
+    }
+
+    /// Where on the output timeline a movie time lies when a run with this origin has sealed segments for
+    /// `sealedDuration` seconds, or nil when it lies before the run's start or past what it has sealed.
+    static func reusableItemTime(for time: TimeInterval, origin: TimeInterval, sealedDuration: TimeInterval) -> TimeInterval? {
+        let itemTime = time - origin
+        return itemTime >= 0 && itemTime < sealedDuration ? itemTime : nil
+    }
+
+    private func reusableSeek(to time: TimeInterval) throws -> RemuxSeek? {
+        let active = try state.withLock { state -> Active? in
+            if state.stopped { throw CancellationError() }
+            return state.active
+        }
+        guard let active, !active.run.isFailed, let origin = active.run.origin, let index = active.run.index else { return nil }
+        let sealed = index.sealedDuration
+        guard let itemTime = Self.reusableItemTime(for: time, origin: origin, sealedDuration: sealed) else { return nil }
+        // The next playhead update would say the same; pacing need not wait for it to see the move.
+        active.run.setPlayhead(itemTime)
+        logger.event("remux-seek-reuse", [
+            ("to", String(format: "%.1f", time)), ("item", String(format: "%.1f", itemTime)),
+            ("sealed", String(format: "%.1f", sealed)),
+        ])
+        return RemuxSeek(url: active.url, itemTime: itemTime, reused: true)
     }
 
     private func currentURL() throws -> URL? {

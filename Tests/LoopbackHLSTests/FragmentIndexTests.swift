@@ -32,4 +32,15 @@ struct FragmentIndexTests {
         #expect(Array(ended.suffix(4)) == ["#EXTINF:1.500,", "#EXT-X-BYTERANGE:4000@5000", "media.mp4", "#EXT-X-ENDLIST"])
         #expect(index.segmentCount == 2)
     }
+
+    @Test func sealedDurationIsWhatTheListedSegmentsCover() {
+        let index = FragmentIndex(mediaName: "media.mp4", targetDuration: 10)
+        #expect(index.sealedDuration == 0)
+        index.setInitSegment(length: 1000)
+        index.seal(endOffset: 5000, duration: 2.5)
+        index.seal(endOffset: 9000, duration: 1.5)
+        #expect(index.sealedDuration == 4)
+        index.finish()
+        #expect(index.sealedDuration == 4)
+    }
 }
