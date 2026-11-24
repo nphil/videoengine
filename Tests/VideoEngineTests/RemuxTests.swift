@@ -154,6 +154,36 @@ struct RemuxSessionTests {
         #expect(try await text("subs/0/0.vtt").contains("Forced"))
     }
 
+    /// A run that has written everything says so in its progress, so a stall watch can tell complete from stuck.
+    @Test func progressSaysWhenTheRunIsFinished() async throws {
+        let fixture = try Fixture.url("h264-aac.mkv")
+        let session = RemuxSession(sourceFactory: { try FileRangeSource(fileURL: fixture) })
+        defer { session.stop() }
+        let watchdog = Task {
+            try await Task.sleep(for: .seconds(60))
+            session.stop()
+        }
+        defer { watchdog.cancel() }
+        #expect(!session.progress.isFinished)
+        _ = try await session.start()
+        var finishedProgress: RemuxProgress?
+        events: for await event in session.events {
+            switch event {
+            case .finished(let progress):
+                finishedProgress = progress
+                break events
+            case .failed(let error, _):
+                Issue.record("remux failed: \(error)")
+                break events
+            case .stopped: break events
+            default: continue
+            }
+        }
+        #expect(finishedProgress?.isFinished == true)
+        #expect(session.progress.isFinished)
+        #expect(session.progress.bytesWritten > 0)
+    }
+
     /// A target already in the run's sealed segments needs no new run; one past them does.
     @Test func seekReusingKeepsTheRunForATargetItHasProduced() async throws {
         let fixture = try Fixture.url("h264-aac-60s.mkv")

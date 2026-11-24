@@ -43,6 +43,11 @@ never opens a network URL itself.
   `isFetching` (`RemuxProgress.isFetching`) is true while a read is under way:
   a player waiting on a run whose output stays put while it is false waits on
   nothing, which an app can treat as stuck at once rather than after a timer.
+  `RemuxProgress.isFinished` (v2.2.0+) is true once the run has written
+  everything, with `.finished`, and stays true. A run started near the end
+  finishes in a few seconds, before a frame shows, and its output no longer
+  moves: a stall watch must treat `isFinished` as complete, never as stuck,
+  and never restart a finished run.
 - `FileRangeSource(fileURL:)` reads local files.
 - `ByteRangeSources.make(for:headers:readAheadBytes:)` picks one by scheme.
 

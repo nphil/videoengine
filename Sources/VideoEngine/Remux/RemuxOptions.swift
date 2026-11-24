@@ -68,11 +68,15 @@ public struct RemuxProgress: Sendable, Equatable {
     public var isFetching: Bool
     /// True while the source waits for the link to come back (`ByteRangeSource.isReconnecting`).
     public var isReconnecting: Bool
+    /// True once the run has written everything and finished successfully (v2.2.0), the moment
+    /// `RemuxEvent.finished` is sent, and from then on. False for a run that failed or was stopped
+    /// first. A run that is finished is not stuck: never restart it for a lack of progress.
+    public var isFinished: Bool
 
     public init(
         bytesWritten: Int64 = 0, mediaSeconds: TimeInterval = 0, packets: Int = 0, isPaced: Bool = false,
         sourceBytesPerSecond: Double? = nil, sourceLatency: TimeInterval? = nil, isFetching: Bool = false,
-        isReconnecting: Bool = false
+        isReconnecting: Bool = false, isFinished: Bool = false
     ) {
         self.bytesWritten = bytesWritten
         self.mediaSeconds = mediaSeconds
@@ -82,6 +86,7 @@ public struct RemuxProgress: Sendable, Equatable {
         self.sourceLatency = sourceLatency
         self.isFetching = isFetching
         self.isReconnecting = isReconnecting
+        self.isFinished = isFinished
     }
 }
 
