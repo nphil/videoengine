@@ -29,7 +29,12 @@ struct PictureTextTests {
     /// Draws `text` at `size` points with CoreText into `context`, baseline at `y` from the bottom.
     private static func draw(_ text: String, in context: CGContext, x: CGFloat, y: CGFloat, size: CGFloat) {
         let font = CTFontCreateWithName("Helvetica-Bold" as CFString, size, nil)
-        let string = NSAttributedString(string: text, attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font])
+        // Without the second attribute CoreText draws black whatever the context's fill colour is.
+        let attributes: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+        ]
+        let string = NSAttributedString(string: text, attributes: attributes)
         let line = CTLineCreateWithAttributedString(string as CFAttributedString)
         context.textPosition = CGPoint(x: x, y: y)
         CTLineDraw(line, context)
@@ -128,7 +133,8 @@ struct PictureTextTests {
 
     @Test func readsSmallDVDCanvases() async throws {
         let picture = try Self.bitmap("Hello world", ink: .white, outline: true, y: 400, canvas: (720, 480), size: 30)
-        #expect(try await Self.read([picture]) == "hello world")
+        let text = try await Self.read([picture])
+        #expect(text == "hello world", "read \"\(text)\"")
     }
 
     @Test func readsTheLinesOfAnEventTopToBottom() async throws {
@@ -148,13 +154,16 @@ struct PictureTextTests {
     }
 
     @Test func choosesTheBackgroundThatContrastsWithTheFill() throws {
-        func corner(_ ink: Ink) throws -> UInt8 {
+        func corner(_ ink: Ink) throws -> String {
             let image = try #require(PictureText.image(of: [try Self.bitmap("Hi", ink: ink, outline: ink.r > 0.5)]))
             let data = try #require(image.dataProvider?.data) as Data
-            return data[0]
+            let bright = data.filter { $0 >= 128 }.count
+            return "corner \(data[0]), \(image.width)x\(image.height), \(bright) of \(data.count) bright"
         }
-        #expect(try corner(.white) == 0)
-        #expect(try corner(.black) == 255)
+        let white = try corner(.white)
+        #expect(white.hasPrefix("corner 0,"), "\(white)")
+        let black = try corner(.black)
+        #expect(black.hasPrefix("corner 255,"), "\(black)")
     }
 
     // MARK: Pure helpers
