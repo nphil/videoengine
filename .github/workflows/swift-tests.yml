@@ -56,37 +56,6 @@ jobs:
       - name: Swift tests
         run: bash scripts/swift-test.sh
 
-  xcode26:
-    name: Targets build on Xcode 26 (macOS)
-    runs-on: macos-15
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Select the newest Xcode 26
-        run: |
-          X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
-          sudo xcode-select -s "$X"
-          xcodebuild -version
-
-      - name: Build VideoEngine and LoopbackHLS for iOS
-        run: |
-          # Xcode 26 intermittently rejects the package's schemes on first contact
-          # ("does not contain a scheme"); a later attempt in the same checkout
-          # finds them, so retry the resolve and build.
-          for attempt in 1 2 3 4; do
-            xcodebuild -resolvePackageDependencies -scheme VideoEngine -derivedDataPath build/DD || true
-            if xcodebuild build -scheme VideoEngine -destination "generic/platform=iOS" \
-                 -derivedDataPath build/DD CODE_SIGNING_ALLOWED=NO > build.log 2>&1; then
-              tail -3 build.log
-              exit 0
-            fi
-            # The compiler's errors come first: the last lines are mostly repeated warnings.
-            grep -q "does not contain a scheme" build.log || { grep -A3 -E "error:" build.log | head -60; tail -40 build.log; exit 1; }
-            echo "scheme not found (attempt $attempt of 4)"
-          done
-          exit 1
-
   consumer:
     needs: test
     if: inputs.release_tag != ''

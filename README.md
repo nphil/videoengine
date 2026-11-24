@@ -22,7 +22,7 @@ Six static-library XCFrameworks, each with an **arm64 iOS-device** slice and an
 | `libswscale.xcframework`    | `Libswscale`    |
 | `libswresample.xcframework` | `Libswresample` |
 
-**FFmpeg version:** `n9.0.2` · **Min iOS:** 26.0 · **License:** LGPL-2.1+
+**FFmpeg version:** `n9.0.2` · **Min iOS:** 27.0 (the Swift package; the prebuilt XCFrameworks are linked for 26.0) · **License:** LGPL-2.1+
 
 ### Enabled capabilities (comprehensive LGPL build, v1.1.0+)
 
@@ -116,6 +116,13 @@ concurrency):
   and AirPlay. Lossy by design; the overlay track is unchanged. Design after
   AetherEngine's documented feature (LGPL-3.0,
   github.com/superuser404notfound/AetherEngine); no code taken.
+- `PictureEnhancer` (v3.0.0+, opt-in, everything off by default) improves SDR video
+  on the device's GPU while it plays: a scaler (Apple's VideoToolbox and MetalFX
+  where the device has them, the engine's own Lanczos or line-art scaler
+  otherwise), a contrast-adaptive sharpen and a deband, each optional. It steps
+  aside by itself for HDR, Low Power Mode, heat or dropped frames, and the plain
+  picture shows. Design informed by AetherEngine's documented upscaling feature;
+  no code taken.
 - Logging goes through an `EngineLogger` the app supplies.
 
 The full API, adoption steps and device test sheets are in

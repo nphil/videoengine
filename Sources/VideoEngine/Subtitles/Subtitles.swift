@@ -203,7 +203,7 @@ final class SubtitleDecoder {
         let colours = UnsafeRawPointer(palette).assumingMemoryBound(to: UInt32.self)
         let count = Int(max(rect.nb_colors, 0))
         var rgba = Data(count: width * height * 4)
-        // Annotated: Xcode 26's type checker finds the untyped closure ambiguous between Data's overloads.
+        // Annotated: the type checker finds the untyped closure ambiguous between Data's overloads.
         rgba.withUnsafeMutableBytes { (out: UnsafeMutableRawBufferPointer) -> Void in
             for row in 0..<height {
                 for column in 0..<width {

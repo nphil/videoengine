@@ -3,7 +3,8 @@
 # swift-test.sh [--local]
 #
 # Builds the Swift package for an iOS simulator and runs every test target in
-# Package.swift (a plain build while there are none).
+# Package.swift (a plain build while there are none). It also builds the package
+# for an iOS device, which compiles what the simulator's SDK leaves out.
 #   default  first checks that the committed Package.swift is what
 #            gen-package-swift.sh emits, then uses it as committed: the
 #            binaries come from the release it pins
@@ -96,6 +97,13 @@ xcb() {
 log "xcodebuild build-for-testing -scheme $SCHEME"
 xcb build-for-testing -scheme "$SCHEME" -destination "id=$UDID" -derivedDataPath "$WORK/DD"
 
+# The simulator's SDK has no MetalFX and declares none of VideoToolbox's frame processors, so the scalers that use
+# them are compiled out there. A build for a device compiles them. It runs while the simulator settles, and its result
+# is reported after the tests, so one run shows both.
+log "xcodebuild build -scheme $SCHEME (iOS device SDK)"
+DEVICE_STATUS=0
+xcb build -scheme "$SCHEME" -destination "generic/platform=iOS" -derivedDataPath "$WORK/DD" CODE_SIGNING_ALLOWED=NO || DEVICE_STATUS=$?
+
 wait "$BOOTING" || die "simulator $UDID did not boot"
 settle=$(( $(cat "$WORK/booted-at") + SETTLE_SECONDS - $(date +%s) ))
 if [ "$settle" -gt 0 ]; then
@@ -104,4 +112,9 @@ if [ "$settle" -gt 0 ]; then
 fi
 
 log "xcodebuild $ACTION -scheme $SCHEME"
-xcb $ACTION -scheme "$SCHEME" -destination "id=$UDID" -derivedDataPath "$WORK/DD"
+TEST_STATUS=0
+xcb $ACTION -scheme "$SCHEME" -destination "id=$UDID" -derivedDataPath "$WORK/DD" || TEST_STATUS=$?
+
+[ "$DEVICE_STATUS" -eq 0 ] || echo "error: the iOS device build failed (xcodebuild exit $DEVICE_STATUS); its errors are above the tests" >&2
+[ "$TEST_STATUS" -eq 0 ] || echo "error: the tests failed (xcodebuild exit $TEST_STATUS)" >&2
+[ "$DEVICE_STATUS" -eq 0 ] && [ "$TEST_STATUS" -eq 0 ]
