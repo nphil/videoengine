@@ -140,6 +140,8 @@ private enum GPUOutcome {
 private enum RungOutcome {
     case ready(any ScalerRung)
     case failed(String)
+    /// Left out on purpose: it works, but not for live video on this picture.
+    case skipped(String)
 }
 
 /// Receives the display link's ticks without keeping the enhancer alive.
@@ -181,12 +183,18 @@ public final class PictureEnhancer {
     /// Shows the enhanced picture. Put it above the player's own layer, with the same frame and `videoGravity`.
     public let layer: AVSampleBufferDisplayLayer
 
-    /// What to do to the picture. Change it at any time; the chain follows within a frame or two.
+    /// What to do to the picture. Change it at any time; the chain follows within a frame or two. A slider dragged in
+    /// small steps is fine: sharpen and deband changes that come faster than ten a second are held back and only the
+    /// newest is applied, and no strength change rebuilds the scaler. Reading it gives the newest value set.
     public var options: EnhanceOptions {
-        didSet {
-            guard options != oldValue else { return }
-            governor.reset()
-            evaluate()
+        get { requested }
+        set {
+            requested = newValue
+            if let now = coalescer.request(newValue, current: applied, now: CACurrentMediaTime()) {
+                apply(now)
+            } else {
+                scheduleFlush()
+            }
         }
     }
 
@@ -229,6 +237,13 @@ public final class PictureEnhancer {
     private var rungGeneration = 0
     private var governor = EnhanceGovernor()
     private var chain: Chain?
+    /// The newest options set, and the ones the chain works from, which can lag a few frames behind during a drag.
+    private var requested: EnhanceOptions
+    private var applied: EnhanceOptions
+    private var coalescer = OptionsCoalescer()
+    private var flushTask: Task<Void, Never>?
+    /// The last `enhance-rungs` line, so the same explanation is not written twice.
+    private var lastRungLine = ""
 
     /// Frames from before a change that makes them wrong (a seek, a new item, stepping aside) are dropped, not shown.
     private var epoch = 0
@@ -252,7 +267,8 @@ public final class PictureEnhancer {
     ///     to feed in more, such as the battery level.
     public init(options: EnhanceOptions = .off, logger: EngineLogger = .silent, power: (@MainActor () -> HardwareCapabilities.Power)? = nil) {
         layer = AVSampleBufferDisplayLayer()
-        self.options = options
+        requested = options
+        applied = options
         self.logger = logger
         if let power {
             self.power = power
@@ -334,7 +350,7 @@ public final class PictureEnhancer {
             invalidateRungs()
         }
         let context = EnhanceContext(
-            options: options, source: source, target: knownTarget, hasGPU: gpuStatus != .failed,
+            options: applied, source: source, target: knownTarget, hasGPU: gpuStatus != .failed,
             shedPower: power().shouldShedOptionalWork, overloaded: governor.isPaused, statuses: statuses,
             ceiling: governor.ceiling
         )
@@ -382,7 +398,10 @@ public final class PictureEnhancer {
         let needed = EnhanceMath.fitScale(source: picture, target: context.target)
         guard needed >= EnhanceMath.minimumUpscaleRatio else { return }
         let ladder = EnhanceLadder.rungs(for: context.options.upscaler)
-        guard let kind = EnhanceLadder.nextToPrepare(ladder, statuses: statuses, ceiling: context.ceiling) else { return }
+        guard let kind = EnhanceLadder.nextToPrepare(ladder, statuses: statuses, ceiling: context.ceiling) else {
+            logRungs(ladder, ceiling: context.ceiling)
+            return
+        }
         prepare(kind, needed: needed, source: picture.size)
     }
 
@@ -421,6 +440,7 @@ public final class PictureEnhancer {
         rungs = [:]
         chain = nil
         governor.restartCount()
+        lastRungLine = ""
     }
 
     // MARK: The display link and the player's frames
@@ -459,7 +479,7 @@ public final class PictureEnhancer {
     private func addOutput() {
         guard output == nil, let item else { return }
         let attributes: [String: any Sendable] = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            kCVPixelBufferPixelFormatTypeKey as String: ScalerFormat.nv12VideoRange.code,
             kCVPixelBufferMetalCompatibilityKey as String: true,
             kCVPixelBufferIOSurfacePropertiesKey as String: [String: any Sendable](),
         ]
@@ -483,6 +503,7 @@ public final class PictureEnhancer {
             logger.measurement("enhance-resume", [("after", "cooldown")])
             evaluate()
         }
+        if coalescer.pending != nil { flushOptions() }
         guard let output else {
             evaluate()
             return
@@ -494,6 +515,37 @@ public final class PictureEnhancer {
         lastFrameTime = now
         setLiveRate(true)
         handle(frame, tickTime: now, deadline: link.targetTimestamp + 2 * link.duration)
+    }
+
+    // MARK: Options changes
+
+    /// Puts new options to work. Only a change of scaler setting, or the chain turning on or off, starts the ladder
+    /// over; a change of strength leaves the scaler, its buffers and the governor's record as they are.
+    private func apply(_ new: EnhanceOptions) {
+        let change = new.change(from: applied)
+        applied = new
+        if change == .structural { governor.reset() }
+        evaluate()
+    }
+
+    /// Applies held-back options once their interval is over.
+    private func flushOptions() {
+        if let due = coalescer.due(current: applied, now: CACurrentMediaTime()) {
+            apply(due)
+        } else {
+            scheduleFlush()
+        }
+    }
+
+    /// Makes sure held-back options are applied even when no frame comes, such as while paused.
+    private func scheduleFlush() {
+        guard flushTask == nil, let delay = coalescer.delay(now: CACurrentMediaTime()) else { return }
+        flushTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            flushTask = nil
+            flushOptions()
+        }
     }
 
     private func pull(_ output: AVPlayerItemVideoOutput, hostTime: CFTimeInterval) -> PulledFrame? {
@@ -538,7 +590,7 @@ public final class PictureEnhancer {
         guard let gpu else { return }
         statistics.offered += 1
         sequence += 1
-        let ladder = EnhanceLadder.rungs(for: options.upscaler)
+        let ladder = EnhanceLadder.rungs(for: applied.upscaler)
         var rank: Int?
         if let kind = plan.upscaler { rank = ladder.firstIndex(of: kind) }
         guard inFlight < Self.maxInFlight else {
@@ -582,13 +634,13 @@ public final class PictureEnhancer {
         }
         let time = frame.time.isValid ? frame.time : CMTime(value: Int64(sequence), timescale: 60)
         do {
-            let coefficients = IngestCoefficients(matrix: facts.matrix, fullRange: facts.fullRange)
-            try gpu.ingest(coefficients, luma: luma.texture, chroma: chroma.texture, output: sourceSurface.texture, commands: commands)
+            let player = PlayerPicture(luma: luma.texture, chroma: chroma.texture, matrix: facts.matrix, fullRange: facts.fullRange)
             var composeInput = sourceSurface.texture
             if let rung, let scaledSurface {
-                let rungFrame = RungFrame(source: sourceSurface, scaled: scaledSurface, time: time, sequence: sequence)
-                try rung.encode(rungFrame, into: commands)
-                composeInput = scaledSurface.texture
+                let rungFrame = RungFrame(gpu: gpu, player: player, source: sourceSurface, scaled: scaledSurface, time: time, sequence: sequence)
+                composeInput = try rung.encode(rungFrame, into: commands)
+            } else {
+                try gpu.ingest(player.coefficients, luma: player.luma, chroma: player.chroma, output: sourceSurface.texture, commands: commands)
             }
             try gpu.compose(composeParameters(for: plan), input: composeInput, output: display.texture, commands: commands)
         } catch {
@@ -718,13 +770,19 @@ public final class PictureEnhancer {
 
     /// A frame the chain could not deliver on time counts against it; too many make it step down and then aside.
     private func record(missed: Bool, rank: Int?) {
-        let ladder = EnhanceLadder.rungs(for: options.upscaler)
+        let ladder = EnhanceLadder.rungs(for: applied.upscaler)
         let action = governor.record(missed: missed, rank: rank, lowestRank: max(ladder.count - 1, 0), now: CACurrentMediaTime())
         switch action {
         case .none:
             return
         case .demote:
-            logger.measurement("enhance-demote", [("ceiling", String(governor.ceiling))])
+            var fields = [("ceiling", String(governor.ceiling))]
+            if let rank, ladder.indices.contains(rank) {
+                fields.append(("from", ladder[rank].rawValue))
+                fields.append(("because", "about a quarter of recent frames were late or missed"))
+            }
+            if ladder.indices.contains(governor.ceiling) { fields.append(("to", ladder[governor.ceiling].rawValue)) }
+            logger.measurement("enhance-demote", fields)
         case .pause(let until):
             let seconds = String(format: "%.0f", until - CACurrentMediaTime())
             logger.measurement("enhance-pause", [("reason", "dropped-frames"), ("seconds", seconds)])
@@ -805,6 +863,8 @@ public final class PictureEnhancer {
     private nonisolated static func buildRung(_ request: RungRequest) -> RungOutcome {
         do {
             return .ready(try EnhanceRungs.make(request))
+        } catch let skip as EnhanceSkip {
+            return .skipped(skip.description)
         } catch {
             return .failed("\(error)")
         }
@@ -824,10 +884,27 @@ public final class PictureEnhancer {
             statuses[kind] = .failed(reason)
             fields.append(("result", "failed"))
             fields.append(("reason", reason))
+        case .skipped(let reason):
+            statuses[kind] = .skipped(reason)
+            fields.append(("result", "skipped"))
+            fields.append(("reason", reason))
         }
         logger.measurement("enhance-probe", fields)
         governor.restartCount()
         evaluate()
+    }
+
+    /// Says why each rung is or is not in use, once every rung that could change the choice has an answer. Written again
+    /// only when the explanation changes: after a demotion, a failure on a frame or a new picture size.
+    private func logRungs(_ ladder: [EnhanceUpscalerKind], ceiling: Int) {
+        guard EnhanceLadder.isSettled(ladder, statuses: statuses, ceiling: ceiling) else { return }
+        var fields = EnhanceLadder.explain(ladder, statuses: statuses, ceiling: ceiling).map { ($0.kind.rawValue, $0.text) }
+        let chosen = EnhanceLadder.active(ladder, statuses: statuses, ceiling: ceiling)
+        fields.append(("chosen", chosen?.kind.rawValue ?? "none"))
+        let line = fields.map { "\($0.0)=\($0.1)" }.joined(separator: "; ")
+        guard line != lastRungLine else { return }
+        lastRungLine = line
+        logger.measurement("enhance-rungs", fields)
     }
 
     // MARK: Diagnostics

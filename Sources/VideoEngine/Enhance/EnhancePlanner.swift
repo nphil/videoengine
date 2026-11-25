@@ -72,6 +72,45 @@ enum EnhanceMath {
         }
     }
 
+    /// What a fixed-factor scaler does with a picture.
+    enum FactorVerdict: Equatable {
+        /// Run at this factor.
+        case use(Double)
+        /// Leave this scaler out, and why, in words for a probe line.
+        case skip(String)
+    }
+
+    /// Picks the factor a fixed-factor scaler runs at, or says why it does not run. The factors are all the scaler
+    /// offers for this picture: it cannot make any other size, so a factor whose output is over the pixel budget
+    /// (`maximumOutputPixels`, the same bound every scaler's output obeys) is out, however good the picture it
+    /// would make. Apple's quality super-resolution offers only 4x on the iPhone 17 Pro: 4x of 720p is 14.7 MP a
+    /// frame, 4x the budget, a model run that is not credible at 24 to 30 frames a second on a phone, so that scaler
+    /// is skipped with a plain reason and the ladder goes on to the next rung.
+    static func fixedFactor(
+        needed: Double, source: PixelSize, from offered: [Double], fits: (Double) -> Bool = { _ in true }
+    ) -> FactorVerdict {
+        let upscales = offered.filter { $0 > 1 }
+        guard let smallest = upscales.min() else {
+            return .skip("it offers no scale factor above 1x for a \(source) picture (it offers \(factorList(offered)))")
+        }
+        if let chosen = factor(needed: needed, source: source, from: offered, fits: fits) { return .use(chosen) }
+        let affordable = upscales.contains { Double(source.pixels) * $0 * $0 <= Double(maximumOutputPixels) }
+        guard affordable else {
+            let which = upscales.count == 1 ? "only \(factorText(smallest))x" : "nothing under \(factorText(smallest))x"
+            return .skip("\(which), too costly for live video")
+        }
+        return .skip("no scale factor fits a \(source) picture (it offers \(factorList(offered)))")
+    }
+
+    private static func factorList(_ factors: [Double]) -> String {
+        "[" + factors.map { factorText($0) + "x" }.joined(separator: ", ") + "]"
+    }
+
+    /// 4 reads "4", 1.5 reads "1.5".
+    static func factorText(_ factor: Double) -> String {
+        factor == factor.rounded() ? String(Int(factor)) : String(factor)
+    }
+
     /// The size a fixed factor makes of a source. Rounds to nearest.
     static func scaled(_ source: PixelSize, by factor: Double) -> PixelSize {
         PixelSize(width: Int((Double(source.width) * factor).rounded()), height: Int((Double(source.height) * factor).rounded()))
@@ -93,8 +132,10 @@ enum RungStatus: Sendable, Equatable {
     case untried, preparing
     /// Ready to scale, and the size of what it makes.
     case ready(PixelSize)
-    /// This scaler will not run here, and why.
+    /// This scaler will not run here, and why: something went wrong.
     case failed(String)
+    /// This scaler was left out on purpose, and why: it works, but not for live video on this picture.
+    case skipped(String)
 }
 
 /// A scaler picked to run now.
@@ -134,6 +175,50 @@ enum EnhanceLadder {
         }
         return nil
     }
+
+    /// Why each rung is or is not the one in use, best first, for the diagnostics. `ceiling` is the rank the governor
+    /// has demoted the chain to.
+    static func explain(_ ladder: [EnhanceUpscalerKind], statuses: [EnhanceUpscalerKind: RungStatus], ceiling: Int) -> [RungReason] {
+        let chosen = active(ladder, statuses: statuses, ceiling: ceiling)
+        return ladder.enumerated().map { rank, kind in
+            let status = statuses[kind] ?? .untried
+            let text: String
+            switch status {
+            case .failed(let reason): text = "failed: \(reason)"
+            case .skipped(let reason): text = "skipped: \(reason)"
+            default:
+                if rank < ceiling {
+                    if case .ready = status {
+                        text = "demoted: it dropped frames"
+                    } else {
+                        text = "not tried: the chain was demoted below it"
+                    }
+                } else if chosen?.kind == kind {
+                    text = "chosen"
+                } else if let chosen, chosen.rank < rank {
+                    text = status == .untried ? "not tried: a better rung is in use" : "not needed: a better rung is in use"
+                } else if status == .preparing {
+                    text = "preparing"
+                } else if case .ready = status {
+                    text = "ready"
+                } else {
+                    text = "not tried yet"
+                }
+            }
+            return RungReason(kind: kind, text: text)
+        }
+    }
+
+    /// True when every rung that could still change the choice has an answer.
+    static func isSettled(_ ladder: [EnhanceUpscalerKind], statuses: [EnhanceUpscalerKind: RungStatus], ceiling: Int) -> Bool {
+        !statuses.values.contains(.preparing) && nextToPrepare(ladder, statuses: statuses, ceiling: ceiling) == nil
+    }
+}
+
+/// One line of the ladder's explanation: a rung and why it is or is not in use.
+struct RungReason: Equatable {
+    var kind: EnhanceUpscalerKind
+    var text: String
 }
 
 /// Everything the plan depends on.

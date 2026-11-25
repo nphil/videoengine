@@ -454,8 +454,8 @@ Design informed by AetherEngine's documented upscaling feature; no code taken. E
 against Apple's iOS 27 documentation. CI compiles the package for the simulator and for a device and tests the
 kernels, the planner and the chain on the simulator. The simulator's SDK has no MetalFX and none of VideoToolbox's
 frame processors, so those two scalers are compiled into device builds only (the simulator's ladder is the engine's
-own scalers) and only the device build compiles them. Nothing has run on a device yet, so the device sheet below is
-open.
+own scalers) and only the device build compiles them. The first device run was on an iPhone 17 Pro (iOS 27.0.1); what
+it showed is under "Measured on iPhone 17 Pro" below, and the device sheet is still open for the fixes that followed.
 
 API (`PictureEnhancer` is `@MainActor`):
 
@@ -471,9 +471,16 @@ API (`PictureEnhancer` is `@MainActor`):
   - `attach(to: AVPlayerItem)`, `detach()` (call it before releasing the enhancer) and `setActive(_:)`.
   - `power`: reports the thermal state and Low Power Mode; the default reads the system's.
 - Diagnostics, through `EngineLogger` and kept for `EngineDiagnostics.report()`: `enhance-gpu`, `enhance-probe` (per
-  scaler: result, milliseconds, output size, scale factor, pixel formats, model status, or why it failed),
-  `enhance-plan` (every state change), `enhance-perf` (every 120 frames: shown, late, skipped and failed frames, GPU
-  time average and maximum), `enhance-demote`, `enhance-pause`, `enhance-resume` and `enhance-error`.
+  scaler: `result=ready`, `failed` or `skipped`, milliseconds, output size, scale factor, the pixel formats it
+  reports and the ones used in and out, model status, or the reason), `enhance-rungs` (once every scaler has an answer
+  and again when it changes: one line saying for each rung `chosen`, `failed: ...`, `skipped: ...`, `demoted: ...` or
+  `not needed`, then `chosen=`), `enhance-plan` (every state change), `enhance-perf` (every 120 frames: shown, late,
+  skipped and failed frames, GPU time average and maximum), `enhance-demote` (from which scaler to which, and why),
+  `enhance-pause`, `enhance-resume` and `enhance-error`.
+- Changing `options` while playing: a slider dragged in steps is fine. Strength (sharpen, deband) changes that come
+  faster than ten a second are held back and only the newest applies, within a tenth of a second; a change of strength
+  never rebuilds the scaler or restarts the ladder, and the governor keeps its record. Only a different `upscaler`, or
+  turning the chain on or off, starts the ladder over.
 
 ```swift
 let enhancer = PictureEnhancer(options: EnhanceOptions(upscaler: .automatic, sharpen: 0.3), logger: logger)
@@ -504,8 +511,8 @@ How it works:
 
 | Option | Scaler, tried best first | Runs on | iOS | Picked when |
 |---|---|---|---|---|
-| `.automatic` | VideoToolbox super resolution, `VTSuperResolutionScalerConfiguration` | Apple's machine-learning model; Apple does not say which compute unit | 26+ | `isSupported`, a factor from `supportedScaleFactors` fits, its model is already downloaded, BGRA is accepted and the session starts |
-| | VideoToolbox low-latency super resolution, `VTLowLatencySuperResolutionScalerConfiguration` | Apple's real-time machine-learning scaler | 26+ (27 adds 1.5x and size limits) | `isSupported`, a factor from `supportedScaleFactors(frameWidth:frameHeight:)` fits and the frame is within `maximumDimension` and `maximumPixelCount` |
+| `.automatic` | VideoToolbox super resolution, `VTSuperResolutionScalerConfiguration` | Apple's machine-learning model; Apple does not say which compute unit | 26+ | `isSupported`, a factor from `supportedScaleFactors` is within the live-video budget (the output is at most 2560x1440; a scaler that offers only a factor above that, such as 4x of 720p, is skipped and `enhance-probe` says `skipped: only 4x, too costly for live video`), its model is already downloaded, a format the engine converts is accepted and the session starts |
+| | VideoToolbox low-latency super resolution, `VTLowLatencySuperResolutionScalerConfiguration` | Apple's real-time machine-learning scaler | 26+ (27 adds 1.5x and size limits) | `isSupported`, a factor from `supportedScaleFactors(frameWidth:frameHeight:)` fits and the frame is within `maximumDimension` and `maximumPixelCount`, a format the engine converts is accepted (BGRA, otherwise 420v) and the session starts |
 | | MetalFX spatial scaler, `MTLFXSpatialScaler` | GPU | 16+ | `supportsDevice` |
 | | Lanczos-3, the engine's own kernels | GPU | 27+ (package floor) | always: the floor |
 | `.lineArt` | the engine's own line-art scaler: Lanczos-3, then edge steepening | GPU | 27+ (package floor) | always; steps down to Lanczos |
@@ -513,10 +520,31 @@ How it works:
 Each scaler is set up off the main thread when first needed, the floor first so a picture shows at once, then the
 better ones one at a time. The result, the formats and scale factors the device reports and the time taken go to
 diagnostics as `enhance-probe`. A scaler that fails to start or fails on a frame is dropped and the next one down
-takes over; one that cannot keep up makes the chain step down. Both last until the item, the picture size or the
-display size changes. The engine never starts Apple's model download:
+takes over; one that cannot keep up makes the chain step down (`enhance-demote` names the scaler it left). A scaler
+that works but is not worth running live on this picture is `skipped`, not `failed`. Both last until the item, the
+picture size or the display size changes. The engine never starts Apple's model download:
 `VTSuperResolutionScalerConfiguration.configurationModelStatus` says whether the model is there, and the app
 downloads it with the user's knowledge.
+
+Pixel formats: the formats a VideoToolbox scaler takes are read from it at run time (`supportedPixelFormats` and the
+pixel buffer attributes of its configuration), never assumed. BGRA is used when it is offered, since the chain's own
+passes work in it. Otherwise 420v (two-plane 4:2:0, video range, which is also what the player's frames are) is used:
+the player's planes are copied into a buffer made to the scaler's requirements, the scaler writes 420v, and one GPU
+pass turns that into BGRA with the video's own matrix for the rest of the chain. A format the engine cannot convert on
+either side fails the scaler with the reason.
+
+Measured on iPhone 17 Pro (A19 Pro, iOS 27.0.1), a 1280x720 picture on a 2556x1179 display, `.automatic`:
+
+- `vt-super-resolution` offers only 4x (`supportedScaleFactors` is `[4]`); 4x of 720p is 5120x2880, four times the
+  engine's output budget. It is not credible at video rate on a phone (Apple publishes no figure), so the engine skips
+  it with `skipped: only 4x, too costly for live video` rather than counting it as a failure. A 4x factor is still used
+  when the source is small enough that the result fits 2560x1440 (for example 640x360).
+- `vt-low-latency` failed before the fix with "it does not take BGRA pictures (it takes 420v)". It now gets 420v, as
+  described above. Its speed on the phone is not measured yet.
+- `metalfx-spatial` was ready and chosen: 1280x720 to 2144x1206, GPU time 6.9 ms average and 15.2 ms at worst, no late
+  frames. It remains the fallback when the VideoToolbox scalers are skipped or fail.
+- Dragging a strength slider re-planned on every 0.05 step and, through the governor reset, lost demotions; this is
+  fixed as described under API.
 
 **Output layer: `AVSampleBufferDisplayLayer`.** Picture in Picture can take frames from this layer
 (`AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer:playbackDelegate:)`); a `CAMetalLayer` cannot do
@@ -544,8 +572,8 @@ Looked at and not used:
   pixel buffers the app feeds in and draws itself.
 - `AVSampleBufferVideoRenderer.recommendedPixelBufferAttributes`: the engine's IOSurface BGRA buffers display
   directly; revisit if device logs show a copy.
-- NV12 fed straight to the VideoToolbox scalers: Apple's pages do not list the pixel formats they take, so the engine
-  feeds BGRA and checks `supportedPixelFormats`; try NV12 only if device logs show BGRA refused.
+- NV12 fed straight from the player to a VideoToolbox scaler without a copy: the scaler wants buffers made to its own
+  attributes, so the player's planes are copied in (BGRA first when the scaler takes it, 420v only when it does not).
 - `AVSampleBufferVideoRenderer.Receiver` (iOS 27): the documentation does not say how to get one, so the engine uses
   the renderer's `enqueue` and `flush`, which iOS 27 still documents (marked deprecated). Switch when the gap closes.
 
@@ -670,6 +698,7 @@ while playing, then seek twice.
 | E3 | rotate the device; play a clip with a rotation transform | the enhancer's layer follows the player layer; the rotated clip is not shown sideways |
 | E4 | 10 minutes at 60 fps with every stage on, then with the device warmed to `serious` and with Low Power Mode on | audio never breaks; `enhance-perf` shows late and skipped frames; heat or Low Power Mode pauses the chain within a second and the plain picture shows; it resumes when clear |
 | E5 | `.automatic` before and after the super-resolution model is downloaded | not downloaded: a lower scaler runs and `enhance-probe` says why; the engine never starts the download |
-| E6 | each device class: `enhance-probe` for `vt-super-resolution` and `vt-low-latency` | `isSupported`, scale factors, pixel formats and start-up time recorded; BGRA accepted, otherwise the scaler is skipped with the reason |
+| E6 | each device class: `enhance-probe` for `vt-super-resolution` and `vt-low-latency`, and the `enhance-rungs` line | `isSupported`, scale factors, pixel formats and start-up time recorded; a scaler that offers only factors above the budget is `skipped` with that reason; a scaler that takes BGRA gets BGRA, one that takes only 420v gets 420v in and out with correct colour and range, otherwise it is skipped with the reason. iPhone 17 Pro (measured): `vt-super-resolution` offers `[4]` and is skipped; `vt-low-latency` took 420v only (to re-run on the fixed build); `metalfx-spatial` 6.9 ms average, 15.2 ms at worst, no late frames |
 | E7 | HDR10 and Dolby Vision files with the chain on; pause, resume, seek, background | `unavailable(highDynamicRange)` and no change to the picture; the plain picture is back at once after a seek; the background stops GPU work with no error |
 | E8 | 30 minutes at 1080p scaled to 1440p, Instruments allocations | memory flat after the first minute; buffer counts stay within the pool limits; detach frees the pools |
+| E9 | on a device where `vt-low-latency` is ready, 2 minutes of 720p, then drag the sharpen slider over its range | `enhance-rungs` says `chosen=vt-low-latency` (or why not); `enhance-perf` GPU time compared with MetalFX; the picture's colours and range match the plain picture; dragging causes no new `enhance-probe` lines and no flicker |

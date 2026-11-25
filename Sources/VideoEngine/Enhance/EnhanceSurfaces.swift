@@ -23,11 +23,21 @@ struct Unchecked<Value>: @unchecked Sendable {
 
 /// One picture's storage for one stage: the texture the GPU works on and, for pool buffers, the pixel buffer behind it.
 struct Surface {
+    /// The picture, or for a two-plane 4:2:0 picture its luma plane.
     let texture: any MTLTexture
+    /// The chroma plane of a two-plane 4:2:0 picture; nil for BGRA.
+    let chroma: (any MTLTexture)?
     /// Set when the picture lives in a pixel buffer, as VideoToolbox needs.
     let buffer: CVPixelBuffer?
     /// What has to stay alive until the GPU is done with the texture.
     let holds: [AnyObject]
+
+    init(texture: any MTLTexture, chroma: (any MTLTexture)? = nil, buffer: CVPixelBuffer?, holds: [AnyObject]) {
+        self.texture = texture
+        self.chroma = chroma
+        self.buffer = buffer
+        self.holds = holds
+    }
 }
 
 /// Where the pictures of one stage live. Used from one thread at a time.
@@ -53,19 +63,23 @@ final class PrivateSurfaces: SurfaceSource, @unchecked Sendable {
     func next() -> Surface? { surface }
 }
 
-/// BGRA pixel buffers from a pool that never holds more than `ceiling` of them, each shown to Metal without a copy.
-/// A buffer comes back to the pool when everything that holds it lets go.
+/// Pixel buffers from a pool that never holds more than `ceiling` of them, each shown to Metal without a copy: BGRA, or
+/// two-plane 4:2:0 as a scaler may ask. A buffer comes back to the pool when everything that holds it lets go.
 final class PooledSurfaces: SurfaceSource, @unchecked Sendable {
     private let pool: CVPixelBufferPool
     private let cache: CVMetalTextureCache
     private let usage: MTLTextureUsage
     private let ceiling: Int
+    private let format: ScalerFormat
 
     /// `requirements` are what a consumer asks of its buffers, such as a VideoToolbox scaler's attributes. The format,
     /// the size, IOSurface backing and Metal compatibility are always set here.
-    init?(size: PixelSize, requirements: [String: Any] = [:], usage: MTLTextureUsage, minimum: Int, ceiling: Int, cache: CVMetalTextureCache) {
+    init?(
+        size: PixelSize, format: ScalerFormat = .bgra, requirements: [String: Any] = [:], usage: MTLTextureUsage, minimum: Int,
+        ceiling: Int, cache: CVMetalTextureCache
+    ) {
         var attributes = requirements
-        attributes[kCVPixelBufferPixelFormatTypeKey as String] = kCVPixelFormatType_32BGRA
+        attributes[kCVPixelBufferPixelFormatTypeKey as String] = format.code
         attributes[kCVPixelBufferWidthKey as String] = size.width
         attributes[kCVPixelBufferHeightKey as String] = size.height
         attributes[kCVPixelBufferMetalCompatibilityKey as String] = true
@@ -80,6 +94,7 @@ final class PooledSurfaces: SurfaceSource, @unchecked Sendable {
         self.cache = cache
         self.usage = usage
         self.ceiling = ceiling
+        self.format = format
     }
 
     func next() -> Surface? {
@@ -87,8 +102,16 @@ final class PooledSurfaces: SurfaceSource, @unchecked Sendable {
         let auxiliary = [kCVPixelBufferPoolAllocationThresholdKey as String: ceiling] as CFDictionary
         let status = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, pool, auxiliary, &created)
         guard status == kCVReturnSuccess, let buffer = created else { return nil }
-        guard let wrapped = EnhanceTextures.wrap(buffer, plane: 0, format: .bgra8Unorm, cache: cache, usage: usage) else { return nil }
-        return Surface(texture: wrapped.texture, buffer: buffer, holds: [wrapped.holder])
+        switch format {
+        case .bgra:
+            guard let wrapped = EnhanceTextures.wrap(buffer, plane: 0, format: .bgra8Unorm, cache: cache, usage: usage) else { return nil }
+            return Surface(texture: wrapped.texture, buffer: buffer, holds: [wrapped.holder])
+        case .nv12VideoRange:
+            guard let luma = EnhanceTextures.wrap(buffer, plane: 0, format: .r8Unorm, cache: cache, usage: usage),
+                  let chroma = EnhanceTextures.wrap(buffer, plane: 1, format: .rg8Unorm, cache: cache, usage: usage)
+            else { return nil }
+            return Surface(texture: luma.texture, chroma: chroma.texture, buffer: buffer, holds: [luma.holder, chroma.holder])
+        }
     }
 }
 

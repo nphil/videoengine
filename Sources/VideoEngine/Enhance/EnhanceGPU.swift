@@ -120,6 +120,19 @@ final class EnhanceGPU: @unchecked Sendable {
         }
     }
 
+    /// Copies the two planes of one NV12 picture into another of the same size, as a scaler's own buffers need.
+    func copyPlanes(
+        luma: any MTLTexture, chroma: any MTLTexture, toLuma: any MTLTexture, toChroma: any MTLTexture, commands: any MTLCommandBuffer
+    ) throws {
+        guard luma.width == toLuma.width, luma.height == toLuma.height, chroma.width == toChroma.width, chroma.height == toChroma.height else {
+            throw EnhanceFailure("the scaler's buffer is not the size of the player's frame")
+        }
+        guard let encoder = commands.makeBlitCommandEncoder() else { throw EnhanceFailure("Metal gave no blit encoder") }
+        encoder.copy(from: luma, to: toLuma)
+        encoder.copy(from: chroma, to: toChroma)
+        encoder.endEncoding()
+    }
+
     /// Lanczos-3 across, then down.
     func lanczos(_ plan: LanczosPlan, input: any MTLTexture, output: any MTLTexture, commands: any MTLCommandBuffer) throws {
         try dispatch(commands, horizontalKernel, width: plan.output.width, height: plan.source.height) { encoder in

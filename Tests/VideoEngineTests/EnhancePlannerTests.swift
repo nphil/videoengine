@@ -1,3 +1,4 @@
+import CoreVideo
 import Foundation
 import Testing
 @testable import VideoEngine
@@ -515,5 +516,237 @@ struct LanczosTapsTests {
         #expect(sample(2) < 0.05)
         #expect(sample(13) > 0.95)
         #expect(sample(7) < sample(8))
+    }
+}
+
+struct EnhanceFormatTests {
+    private let bgra = ScalerFormat.bgra.code
+    private let video = ScalerFormat.nv12VideoRange.code
+    private let full = OSType(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)
+
+    @Test func theChainsOwnFormatComesFirstThenTheOneAppleTakes() {
+        #expect(EnhanceFormats.choose([video, bgra]) == .bgra)
+        #expect(EnhanceFormats.choose([video]) == .nv12VideoRange)
+        #expect(EnhanceFormats.choose([full, video]) == .nv12VideoRange)
+    }
+
+    @Test func aFormatTheChainCannotConvertIsNotChosen() {
+        #expect(EnhanceFormats.choose([full]) == nil)
+        #expect(EnhanceFormats.choose([]) == nil)
+    }
+
+    @Test func theLowLatencyScalerThatTakes420vAndNotBGRAGets420v() {
+        // What the iPhone 17 Pro's low-latency scaler reported: "it does not take BGRA pictures (it takes 420v)".
+        let attributes: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: NSNumber(value: video)]
+        let offered = EnhanceFormats.offered(attributes: attributes, supported: [video])
+        #expect(offered == [video])
+        #expect(EnhanceFormats.choose(offered) == .nv12VideoRange)
+    }
+
+    @Test func aListOfFormatsInTheAttributesIsReadAndHeldToWhatIsSupported() {
+        let attributes: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: [NSNumber(value: bgra), NSNumber(value: video)]]
+        #expect(EnhanceFormats.offered(attributes: attributes, supported: [video, full]) == [video])
+        #expect(EnhanceFormats.offered(attributes: attributes, supported: [bgra, video]) == [bgra, video])
+    }
+
+    @Test func whicheverSideNamesFormatsIsUsedWhenTheOtherIsSilent() {
+        let silent: [String: Any] = [:]
+        #expect(EnhanceFormats.offered(attributes: silent, supported: [bgra]) == [bgra])
+        let attributes: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: NSNumber(value: video)]
+        #expect(EnhanceFormats.offered(attributes: attributes, supported: []) == [video])
+        // Two lists that share nothing: the scaler's own supported list wins.
+        #expect(EnhanceFormats.offered(attributes: attributes, supported: [full]) == [full])
+    }
+}
+
+struct EnhanceFixedFactorTests {
+    private let hd = PixelSize(width: 1280, height: 720)
+
+    @Test func aScalerThatOffersOnly4xIsSkippedForLiveVideo() {
+        // Measured on iPhone 17 Pro: the quality scaler offers [4] and 4x of 720p is 5120x2880.
+        let verdict = EnhanceMath.fixedFactor(needed: 1.67, source: hd, from: [4])
+        #expect(verdict == .skip("only 4x, too costly for live video"))
+    }
+
+    @Test func severalFactorsAllTooBigAreSkippedWithTheSmallestNamed() {
+        let verdict = EnhanceMath.fixedFactor(needed: 1.5, source: hd, from: [3, 4])
+        #expect(verdict == .skip("nothing under 3x, too costly for live video"))
+    }
+
+    @Test func aSmallPictureCanTake4x() {
+        let small = PixelSize(width: 640, height: 360)
+        #expect(EnhanceMath.fixedFactor(needed: 4, source: small, from: [4]) == .use(4))
+    }
+
+    @Test func theNearestAffordableFactorIsUsed() {
+        #expect(EnhanceMath.fixedFactor(needed: 1.9, source: hd, from: [1.5, 2, 4]) == .use(2))
+    }
+
+    @Test func aFactorTheScalerRefusesIsNotTooCostlyJustUnavailable() {
+        let verdict = EnhanceMath.fixedFactor(needed: 1.7, source: hd, from: [2], fits: { _ in false })
+        #expect(verdict == .skip("no scale factor fits a 1280x720 picture (it offers [2x])"))
+    }
+
+    @Test func nothingAbove1xIsASkipToo() {
+        guard case .skip(let reason) = EnhanceMath.fixedFactor(needed: 1.7, source: hd, from: []) else {
+            Issue.record("expected a skip")
+            return
+        }
+        #expect(reason.contains("no scale factor above 1x"))
+    }
+}
+
+struct EnhanceRungDecisionTests {
+    private let automatic = EnhanceLadder.rungs(for: .automatic)
+    private let size = PixelSize(width: 2144, height: 1206)
+    private let skipText = "only 4x, too costly for live video"
+
+    private func statuses(lowLatency: RungStatus) -> [EnhanceUpscalerKind: RungStatus] {
+        [
+            .lanczos: .ready(size), .metalFXSpatial: .ready(size),
+            .videoToolboxSuperResolution: .skipped(skipText), .videoToolboxLowLatency: lowLatency,
+        ]
+    }
+
+    @Test func with4xOnlyQualityScalerTheLowLatencyScalerIsChosen() {
+        let all = statuses(lowLatency: .ready(size))
+        #expect(EnhanceLadder.active(automatic, statuses: all, ceiling: 0)?.kind == .videoToolboxLowLatency)
+    }
+
+    @Test func whenLowLatencyFailsToo() {
+        let all = statuses(lowLatency: .failed("it does not take BGRA pictures (it takes 420v)"))
+        #expect(EnhanceLadder.active(automatic, statuses: all, ceiling: 0)?.kind == .metalFXSpatial)
+    }
+
+    @Test func aSkippedRungIsNotPreparedAgain() {
+        let all = statuses(lowLatency: .ready(size))
+        #expect(EnhanceLadder.nextToPrepare(automatic, statuses: all, ceiling: 0) == nil)
+        var waiting = all
+        waiting[.videoToolboxLowLatency] = nil
+        #expect(EnhanceLadder.nextToPrepare(automatic, statuses: waiting, ceiling: 0) == .videoToolboxLowLatency)
+    }
+
+    @Test func theExplanationNamesWhyEachRungIsOrIsNotInUse() {
+        let all = statuses(lowLatency: .ready(size))
+        let reasons = EnhanceLadder.explain(automatic, statuses: all, ceiling: 0)
+        #expect(reasons.map(\.kind) == automatic)
+        #expect(reasons.map(\.text) == [
+            "skipped: \(skipText)", "chosen", "not needed: a better rung is in use", "not needed: a better rung is in use",
+        ])
+    }
+
+    @Test func aDemotedRungIsExplainedAsSuch() {
+        let all = statuses(lowLatency: .ready(size))
+        let reasons = EnhanceLadder.explain(automatic, statuses: all, ceiling: 2)
+        #expect(reasons.map(\.text) == [
+            "skipped: \(skipText)", "demoted: it dropped frames", "chosen", "not needed: a better rung is in use",
+        ])
+    }
+
+    @Test func aFailureIsExplainedWithItsReason() {
+        let all = statuses(lowLatency: .failed("not supported"))
+        let reasons = EnhanceLadder.explain(automatic, statuses: all, ceiling: 0)
+        #expect(reasons[1].text == "failed: not supported")
+        #expect(reasons[2].text == "chosen")
+    }
+
+    @Test func theExplanationWaitsUntilEveryRungHasAnAnswer() {
+        var all = statuses(lowLatency: .ready(size))
+        #expect(EnhanceLadder.isSettled(automatic, statuses: all, ceiling: 0))
+        all[.videoToolboxLowLatency] = .preparing
+        #expect(!EnhanceLadder.isSettled(automatic, statuses: all, ceiling: 0))
+        all[.videoToolboxLowLatency] = nil
+        #expect(!EnhanceLadder.isSettled(automatic, statuses: all, ceiling: 0))
+    }
+}
+
+struct EnhanceOptionsFlowTests {
+    private let base = EnhanceOptions(upscaler: .automatic, sharpen: 0.3, deband: 0.2)
+
+    private func with(sharpen: Double) -> EnhanceOptions {
+        var changed = base
+        changed.sharpen = sharpen
+        return changed
+    }
+
+    @Test func aStrengthChangeIsTuningAndNeverRebuildsTheScaler() {
+        #expect(with(sharpen: 0.35).change(from: base) == .tuning)
+        var deband = base
+        deband.deband = 0.5
+        #expect(deband.change(from: base) == .tuning)
+        #expect(base.change(from: base) == .none)
+    }
+
+    @Test func aDifferentScalerOrTurningTheChainOnOrOffIsStructural() {
+        var other = base
+        other.upscaler = .lineArt
+        #expect(other.change(from: base) == .structural)
+        #expect(EnhanceOptions.off.change(from: base) == .structural)
+        #expect(base.change(from: .off) == .structural)
+        // Strengths with the scaler off still turn the chain on.
+        #expect(EnhanceOptions(sharpen: 0.3).change(from: .off) == .structural)
+    }
+
+    @Test func theFirstStrengthChangeAppliesAtOnce() {
+        var coalescer = OptionsCoalescer()
+        #expect(coalescer.request(with(sharpen: 0.35), current: base, now: 10) == with(sharpen: 0.35))
+        #expect(coalescer.pending == nil)
+    }
+
+    @Test func aDragKeepsOnlyTheNewestStepAndAppliesItWhenTheIntervalIsOver() {
+        var coalescer = OptionsCoalescer()
+        var current = base
+        let first = coalescer.request(with(sharpen: 0.35), current: current, now: 10)
+        current = first ?? current
+        #expect(coalescer.request(with(sharpen: 0.40), current: current, now: 10.02) == nil)
+        #expect(coalescer.request(with(sharpen: 0.45), current: current, now: 10.05) == nil)
+        #expect(coalescer.pending == with(sharpen: 0.45))
+        let wait = coalescer.delay(now: 10.05) ?? -1
+        #expect(abs(wait - 0.05) < 1e-9)
+        #expect(coalescer.due(current: current, now: 10.07) == nil)
+        #expect(coalescer.due(current: current, now: 10.11) == with(sharpen: 0.45))
+        #expect(coalescer.pending == nil)
+        #expect(coalescer.delay(now: 10.11) == nil)
+    }
+
+    @Test func aScalerChangeDuringADragAppliesAtOnceWithoutWaiting() {
+        var coalescer = OptionsCoalescer()
+        _ = coalescer.request(with(sharpen: 0.35), current: base, now: 10)
+        var other = with(sharpen: 0.4)
+        other.upscaler = .lineArt
+        #expect(coalescer.request(other, current: with(sharpen: 0.35), now: 10.01) == other)
+    }
+
+    @Test func draggingBackToWhatIsAppliedDropsTheHeldChange() {
+        var coalescer = OptionsCoalescer()
+        let applied = coalescer.request(with(sharpen: 0.35), current: base, now: 10) ?? base
+        #expect(coalescer.request(with(sharpen: 0.4), current: applied, now: 10.01) == nil)
+        #expect(coalescer.pending != nil)
+        #expect(coalescer.request(applied, current: applied, now: 10.02) == nil)
+        #expect(coalescer.pending == nil)
+        #expect(coalescer.due(current: applied, now: 11) == nil)
+    }
+
+    @Test func aHeldChangeAMomentLaterThanTheIntervalAppliesOnTheNextRequest() {
+        var coalescer = OptionsCoalescer()
+        let applied = coalescer.request(with(sharpen: 0.35), current: base, now: 10) ?? base
+        #expect(coalescer.request(with(sharpen: 0.5), current: applied, now: 10.5) == with(sharpen: 0.5))
+    }
+
+    @Test func tenStepsInAHalfSecondDragApplyAboutFiveTimes() {
+        var coalescer = OptionsCoalescer()
+        var current = base
+        var applied = 0
+        for step in 0..<10 {
+            let now = 20 + Double(step) * 0.05
+            if let next = coalescer.request(with(sharpen: 0.3 + 0.05 * Double(step + 1)), current: current, now: now) {
+                current = next
+                applied += 1
+            } else if let due = coalescer.due(current: current, now: now) {
+                current = due
+                applied += 1
+            }
+        }
+        #expect(applied >= 4 && applied <= 6)
     }
 }
