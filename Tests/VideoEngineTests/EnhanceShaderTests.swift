@@ -321,15 +321,22 @@ private struct Kit {
     let queue: any MTLCommandQueue
     let library: any MTLLibrary
 
-    init() throws {
+    /// The device, its queue and the compiled library, made once for every test: compiling the library takes seconds,
+    /// and the suites run in parallel, so a compile in every test would starve the chain tests that run beside them.
+    private nonisolated(unsafe) static let shared: Result<(any MTLDevice, any MTLCommandQueue, any MTLLibrary), any Error> = Result {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
             throw Failure(description: "no Metal device")
         }
         let options = MTLCompileOptions()
         options.languageVersion = .version3_0
-        self.device = device
-        self.queue = queue
-        self.library = try device.makeLibrary(source: EnhanceShaders.source, options: options)
+        return (device, queue, try device.makeLibrary(source: EnhanceShaders.source, options: options))
+    }
+
+    init() throws {
+        let shared = try Self.shared.get()
+        self.device = shared.0
+        self.queue = shared.1
+        self.library = shared.2
     }
 
     func pipeline(_ name: String) throws -> any MTLComputePipelineState {

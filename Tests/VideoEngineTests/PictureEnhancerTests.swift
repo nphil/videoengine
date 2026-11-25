@@ -258,6 +258,7 @@ struct PictureEnhancerTests {
             return enhancer.statistics.shown >= (baseline ?? 0) + 3
         }
         let report = "\(enhancer.statistics) \(enhancer.state)\n\(logs.text)"
+        print("[enhance-report] \(report)")
         #expect(enhancer.statistics.shown >= 3, Comment(rawValue: report))
         if case .running(let plan) = enhancer.state {
             #expect(plan.outputWidth > 640, Comment(rawValue: report))
@@ -280,6 +281,7 @@ struct PictureEnhancerTests {
         enhancer.setTrackOrientation(.known(.upright))
         try await pump(enhancer, frame: buffer) { enhancer.statistics.shown >= 3 }
         let report = "\(enhancer.statistics) \(enhancer.state)\n\(logs.text)"
+        print("[enhance-report] \(report)")
         #expect(enhancer.statistics.shown >= 3, Comment(rawValue: report))
         if case .running(let plan) = enhancer.state {
             #expect(plan.upscaler == nil, Comment(rawValue: report))
@@ -301,6 +303,7 @@ struct PictureEnhancerTests {
         enhancer.setTrackOrientation(.known(.upright))
         try await pump(enhancer, frame: buffer) { enhancer.statistics.shown >= 4 }
         let report = "\(enhancer.statistics) \(enhancer.state)\n\(logs.text)"
+        print("[enhance-report] \(report)")
         #expect(enhancer.statistics.shown >= 4, Comment(rawValue: report))
         #expect(enhancer.statistics.failed == 0, Comment(rawValue: report))
         if case .running(let plan) = enhancer.state {
@@ -335,6 +338,7 @@ struct PictureEnhancerTests {
             return enhancer.statistics.shown >= (baseline ?? 0) + 3
         }
         let report = "\(enhancer.statistics) \(enhancer.state)\n\(logs.text)"
+        print("[enhance-report] \(report)")
         #expect(enhancer.statistics.shown >= (baseline ?? 0) + 3, Comment(rawValue: report))
         #expect(enhancer.statistics.failed == 0, Comment(rawValue: report))
         enhancer.detach()

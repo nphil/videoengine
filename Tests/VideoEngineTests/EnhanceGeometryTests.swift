@@ -306,11 +306,13 @@ struct AmateurSizeTests {
     }
 
     @Test func aFixedFactorScalerSeesEverySizeThroughTheBudget() {
-        // 4x only, as the quality scaler offers on the iPhone 17 Pro: fine for small pictures, skipped for 480p and up.
+        // 4x only, as the quality scaler offers on the iPhone 17 Pro: fine for small pictures and for 480p-class ones (v3.1.0:
+        // the result is scaled down to the display), skipped above that.
         let small = EnhanceMath.fixedFactor(needed: 6.7, source: PixelSize(width: 320, height: 176), from: [4])
         #expect(small == .use(4))
         #expect(EnhanceMath.fixedFactor(needed: 4.9, source: PixelSize(width: 426, height: 240), from: [4]) == .use(4))
-        for (width, height) in [(854, 480), (720, 1280), (1080, 1920), (1280, 720), (960, 544)] {
+        #expect(EnhanceMath.fixedFactor(needed: 2, source: PixelSize(width: 854, height: 480), from: [4]) == .use(4))
+        for (width, height) in [(720, 1280), (1080, 1920), (1280, 720), (960, 544)] {
             let verdict = EnhanceMath.fixedFactor(needed: 2, source: PixelSize(width: width, height: height), from: [4])
             #expect(verdict == .skip("only 4x, too costly for live video"), Comment(rawValue: "\(width)x\(height): \(verdict)"))
         }
