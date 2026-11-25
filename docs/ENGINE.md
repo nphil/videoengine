@@ -461,14 +461,16 @@ it showed is under "Measured on iPhone 17 Pro" below, and the device sheet is st
 
 API (`PictureEnhancer` is `@MainActor`):
 
-- `EnhanceOptions(upscaler:sharpen:deband:)`: `upscaler` is `.off`, `.automatic` or `.lineArt`; `sharpen` and `deband`
-  are 0...1 and clamped. `EnhanceOptions.off` is the default; `isEnabled` says whether anything is on.
+- `EnhanceOptions(upscaler:sharpen:deband:denoise:deblock:vivid:)`: `upscaler` is `.off`, `.automatic` or `.lineArt`;
+  `sharpen`, `deband`, and (v3.1.0+) `denoise`, `deblock` and `vivid` are 0...1 and clamped (0 is off). Every argument
+  has a default, so calls from before 3.1.0 compile unchanged. `EnhanceOptions.off` is the default; `isEnabled` says
+  whether anything is on.
 - `PictureEnhancer(options:logger:power:)` with:
   - `layer: AVSampleBufferDisplayLayer`: shows the enhanced picture, and is empty whenever the chain steps aside.
   - `options`: assign a new value at any time.
   - `displaySize: CGSize`: the pixels the picture covers on screen.
   - `state: EnhanceState` and `updates() -> AsyncStream<EnhanceState>` (the current state first): `.idle`,
-    `.running(EnhancePlan)` (scaler, source and output size, sharpen, deband), `.paused(.powerSaving | .droppedFrames)`
+    `.running(EnhancePlan)` (scaler, source and output size, sharpen, deband, denoise, deblock, vivid), `.paused(.powerSaving | .droppedFrames)`
     and `.unavailable(.highDynamicRange | .noGPU | .unsupportedPicture)`. `unsupportedPicture` is only for a picture the
     chain truly cannot draw (see the gates below); a crop, a turn, an odd size or a non-square pixel is drawn.
   - `attach(to: AVPlayerItem)`, `detach()` (call it before releasing the enhancer) and `setActive(_:)`.
@@ -479,13 +481,13 @@ API (`PictureEnhancer` is `@MainActor`):
   scaler: `result=ready`, `failed` or `skipped`, milliseconds, output size, scale factor, the pixel formats it
   reports and the ones used in and out, model status, or the reason), `enhance-rungs` (once every scaler has an answer
   and again when it changes: one line saying for each rung `chosen`, `failed: ...`, `skipped: ...`, `demoted: ...` or
-  `not needed`, then `chosen=`), `enhance-plan` (every state change), `enhance-perf` (every 120 frames: shown, late,
+  `not needed`, then `chosen=`; v3.1.0+ adds a `policy` field saying how the picture's size shaped the ladder), `enhance-plan` (every state change; v3.1.0+ adds `denoise`, `deblock`, `vivid` and `extra-passes`), `enhance-perf` (every 120 frames: shown, late,
   skipped and failed frames, GPU time average and maximum), `enhance-demote` (from which scaler to which, and why),
   `enhance-pause`, `enhance-resume` and `enhance-error`.
 - Strength scale (v3.0.3+): `sharpen` 0.5 is the full contrast-adaptive result and 1.0 doubles its change, held
   near the neighbourhood's own range so it does not ring; `deband` smooths steps of up to 1 + 11 x strength codes
   (12 of 255 at 1.0). Both were too faint to see at 1080p in 3.0.2 (measured on iPhone 17 Pro).
-- Changing `options` while playing: a slider dragged in steps is fine. Strength (sharpen, deband) changes that come
+- Changing `options` while playing: a slider dragged in steps is fine. Strength (sharpen, deband, denoise, deblock, vivid) changes that come
   faster than ten a second are held back and only the newest applies, within a tenth of a second; a change of strength
   never rebuilds the scaler or restarts the ladder, and the governor keeps its record. Only a different `upscaler`, or
   turning the chain on or off, starts the ladder over.
@@ -506,8 +508,9 @@ How it works:
   player layer. The enhancer pulls frames with an `AVPlayerItemVideoOutput` on a display link (24 to 60 Hz while frames
   come, a few times a second otherwise), runs the chain and draws the result in its own layer. AVPlayer keeps audio,
   sync and seeking, and the plain picture shows underneath whenever the chain steps aside.
-- The chain: NV12 frame to BGRA with the video's own matrix, the scaler, then one pass that debands, sharpens and
-  dithers into the buffer the layer shows. Memory is bounded: pooled IOSurface buffers shared with Metal without a
+- The chain: NV12 frame to BGRA with the video's own matrix (and, v3.1.0+, the deblock on the luma it reads), the
+  scaler, the denoise when it is on (v3.1.0+), then one pass that debands, sharpens, applies vivid and dithers into the
+  buffer the layer shows. Memory is bounded: pooled IOSurface buffers shared with Metal without a
   copy, at most two frames in flight, nothing large allocated per frame, output capped at 2560x1440.
 - Gates, in order. Nothing asked for, or no frame yet: idle. No GPU, HDR or Dolby Vision, or a picture that cannot be
   drawn (below): unavailable, and the plain picture plays. Low Power Mode or
@@ -582,6 +585,51 @@ area in pixels (`displaySize`; empty means the layer's bounds times its `content
 upscale). A clip the player turns by its `preferredTransform` is recognised from the player item's `presentationSize`
 and keeps the plain picture (E3).
 
+### Denoise, deblock, vivid and the low-resolution policy (v3.1.0+)
+
+Additive: three new strengths and a rule for small pictures. All are 0 (off) by default, change live like the other
+strengths (a change is `tuning`: coalesced to one a tenth of a second, never rebuilds the scaler), obey the same gates
+and the same auto-pause, and appear in `enhance-plan` and in `EnhancePlan`. Every kernel is written from the published
+description of the algorithm named in Credits; no third-party shader source is used.
+
+| Option | What it does | Where it runs | Extra GPU cost |
+|---|---|---|---|
+| `denoise` | Reduces noise and mosquito speckle. **Temporal**, motion-adaptive, with an edge-preserving spatial step in the same kernel. Each pixel is first averaged with its 3x3 neighbours by weights that fall off with colour distance (a real edge is not blurred), then blended toward the previous frame's result by up to 0.4 + 0.5 x strength, but only where the picture is still: the blend fades out when the 3x3 average brightness change or the pixel's own change passes a tolerance of 3 + 12 x strength codes of 255, so motion and a scene change get no ghost. | After the scaler, before the sharpen and deband, at the output size, so the same code serves every scaler | **+1 pass** at the output size; history is two half-float textures at the output size (about 59 MB at 2560x1440), made once and pooled |
+| `deblock` | Softens small steps across the 8x8 and 16x16 block edges of low-bitrate video. A step across a block edge up to 3 + 17 x strength codes, with quiet pixels on both sides (activity under 2 + 6 x strength codes), is pulled together over up to three pixels each side (1/2, 1/3 and 1/6 of the step, the way a loop filter shares a step); a real edge or a textured area is left alone. Luma only. | In the pass that reads the player's frame, on the source pixels in the coded frame's own 8-pixel grid, so it is before any scaler and independent of crop and turn | **0 extra passes** (the pass already reads the luma) |
+| `vivid` | A tone boost for OLED screens, SDR only: local contrast (each pixel moves away from the average brightness around it by up to 0.6 x strength, the difference compressed so a big step makes no halo) and a vibrance-weighted saturation push of up to 0.5 x strength. Highlights near white (no clipping), deep shadows and skin tones are held back, and grey and a flat area are left as they are. 0.5 is clearly visible, 1.0 strong but not garish. No HDR and no EDR. | In the final pass, after the sharpen | **0 extra passes**; 16 more reads of the picture per pixel in that pass |
+
+Why temporal for denoise: it is cheap and safe here. One extra pass reading two textures it already has the size of,
+no motion search, no per-frame allocation, and a gate that falls back to the spatial step alone wherever the picture
+moves, on the first frame, after a seek, a new item, a size or scaler change, a pause or a gap over half a second
+between frames (the same `epoch` the chain already keeps), and after any chain failure. The history is kept at half
+float because 8-bit history stalls small differences. It sits before the sharpen so the sharpen does not feed back
+into the history. When the denoise is on the final pass also adds a little dither, so the smoothing does not leave
+banding. Spatial-only is therefore not a separate build: it is what the kernel does for a frame with no usable history,
+and `enhance-plan` reports `denoise` and `extra-passes=1` while it is on.
+
+The `.automatic` policy for pictures of 720p class or smaller (v3.1.0+): a picture counts when its longer side is at most
+1280 and its shorter at most 720 (landscape or portrait). The ladder order is unchanged, best scaler first:
+`vt-super-resolution`, `vt-low-latency`, `metalfx-spatial`, Lanczos. What changes is what "affordable" means: a small
+picture may run a model of up to 7.5 million output pixels a frame (every other picture 2560x1440, 3.7 million), so
+4x of a 480p-class picture (854x480 gives 3416x1920, 6.6 million) is allowed where 4x of 720p (14.7 million) is still
+`skipped: only 4x, too costly for live video`. A result over the 2560x1440 budget is scaled down by a Lanczos-2 pass pair
+to the size the display needs (never to less than half the model's size; a factor that would need more than that is
+skipped with the reason), so every pass after the scaler and the display buffers stay within the old budget. When 4x does
+not fit or fails the ladder goes on to `vt-low-latency`, then MetalFX, then Lanczos, exactly as before; the governor
+still demotes one rung on late frames. `enhance-rungs` gives the reason in a `policy` field and the chosen text reads
+`chosen: the best scaler, which a small picture gets first`; the probe line of a 4x-then-downscale run carries
+`model-out` (the scaler's own result size; `output` is the size after the scale down).
+
+Estimated extra GPU work per frame, over a chain that was already ingest, scaler and final pass: `denoise` +1 pass at
+the output size; `deblock` 0; `vivid` 0; a 4x result scaled down +2 passes (across, then down) at the output size,
+plus a half-float intermediate of the output's width and the model's height. Nothing is allocated per frame: the history,
+the intermediate and the scaled-down buffer are made with the chain and kept.
+
+Parked, not built: motion smoothing and frame interpolation (it needs motion vectors, doubles the passes, and adds
+latency to audio sync); colour sliders (hue, saturation, gamma as separate controls: vivid is the one tone control
+for now); and a dark-room shadow lift (lifting shadows for a dim room; the OLED black level makes it a taste control that
+belongs with the colour sliders).
+
 Looked at and not used:
 
 - MetalFX temporal, denoised and frame-interpolation scalers, and Metal 4 `MTL4FXSpatialScaler`: they need game data
@@ -603,8 +651,13 @@ Looked at and not used:
   the renderer's `enqueue` and `flush`, which iOS 27 still documents (marked deprecated). Switch when the gap closes.
 
 Credits: the sharpen follows the published idea of contrast-adaptive sharpening, the line-art pass the published
-shock-filter and Anime4K-style descriptions of edge steepening, and the scaler the textbook Lanczos filter. No
-third-party shader source is used, so there are no licence notices to add.
+shock-filter and Anime4K-style descriptions of edge steepening, and the scaler the textbook Lanczos filter. v3.1.0:
+the denoise follows the bilateral filter (Tomasi and Manduchi, 1998) combined with a motion-adaptive recursive temporal
+filter, the standard form in the video-processing literature; the deblock follows the idea of the H.264 and HEVC
+loop filters, which smooth a small step across a block edge only when the step and the activity beside it are small,
+done here on the decoded picture; the vivid pass uses local contrast (a compressed difference from a local mean) and a
+vibrance-weighted saturation push, both textbook tone operations; the scale down is the textbook Lanczos filter
+stretched by the ratio. No third-party shader source is used, so there are no licence notices to add.
 
 ### Diagnostics
 
@@ -789,3 +842,8 @@ while playing, then seek twice.
 | E8 | 30 minutes at 1080p scaled to 1440p, Instruments allocations | memory flat after the first minute; buffer counts stay within the pool limits; detach frees the pools |
 | E9 | on a device where `vt-low-latency` is ready, 2 minutes of 720p, then drag the sharpen slider over its range | `enhance-rungs` says `chosen=vt-low-latency` (or why not); `enhance-perf` GPU time compared with MetalFX; the picture's colours and range match the plain picture; dragging causes no new `enhance-probe` lines and no flicker |
 | E10 | a phone clip shot upright (90 or 270 degree transform), one shot upside down (180), a mirrored front-camera clip, a 1088-row clip with a 1080 clean aperture, an odd-sized clip (for example 853x481), and amateur sizes 320x176, 426x240, 854x480, 960x544, 1016x572, 1440x1080 and 720x1280, each with every stage on | every clip is enhanced (not `unavailable`), upright, not stretched, not mirrored, with the right crop; the `enhance-picture` line says coded, shown, crop, turn and pixel shape; the colours match the plain picture; with `vt-low-latency` chosen the rotated clip is also right (the 420v path); a clip with a skewed transform or 10-bit frames is `unavailable(unsupportedPicture)` with the reason on the `enhance-picture` line. To confirm on the device: that the player's frames really arrive in coded order with a transform set, and that a clean-aperture frame carries its aperture and is not already cropped |
+| E11 | a noisy low-light clip, then a clean clip, then a clip with a hard cut, `denoise` 0.5 then 1.0 | grain and speckle visibly fall on the noisy clip, the clean clip looks unchanged, a hard cut shows no ghost of the old scene, a pan or a walking person leaves no trail or smear; `enhance-plan` shows `denoise` and `extra-passes=1`; `enhance-perf` GPU time rises by one pass at the output size and late frames do not |
+| E12 | a low-bitrate H.264 clip with visible blocks in flat areas (sky, walls), `deblock` 0.5 then 1.0, with and without a scaler | block edges soften and gradients look smoother; hard edges, text and fine texture are not blurred; the effect is the same with the scaler off and on (it happens before the scaler); a rotated clip behaves the same |
+| E13 | a colourful clip with faces, a bright sky and a night scene on an OLED phone, `vivid` 0.5 then 1.0, SDR only | 0.5 is clearly visible, 1.0 strong but not garish; faces keep natural skin tones, white and bright clouds do not clip or glow, dark areas gain no noise, grey stays grey; HDR files stay `unavailable(highDynamicRange)` and untouched; dragging the slider is smooth with no new `enhance-probe` lines |
+| E14 | `.automatic` on 854x480 and 640x480 clips on a 2556x1179 phone with the super-resolution model downloaded, 2 minutes | `enhance-rungs` has a `policy` field and `chosen=vt-super-resolution` with the text `the best scaler, which a small picture gets first`, or the reason it was not chosen; the probe shows `model-out` and a smaller `output`; `enhance-perf` GPU time and late frames recorded; memory flat (E8) with the 4x buffers counted; if late frames appear the chain steps down to `vt-low-latency` and `enhance-demote` says so |
+| E15 | every stage at once (`.automatic`, sharpen, deband, denoise, deblock, vivid at 0.5) for 10 minutes at 30 fps on 480p, 720p and 1080p, warm device | audio never breaks; `enhance-perf` late-frame rate stays under the demote threshold or the chain steps down by itself; heat pauses it and it resumes; strength changes while playing cause no rebuild and no flicker |

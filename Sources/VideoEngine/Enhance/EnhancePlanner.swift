@@ -37,6 +37,52 @@ enum EnhanceMath {
     static let maximumScale = 4.0
     /// The most pixels one output picture may have: 2560x1440, 14.7 MB a buffer. Bounds the chain's memory.
     static let maximumOutputPixels = 2560 * 1440
+    /// The most pixels a fixed-factor machine-learning scaler may make in one frame for a small picture (720p class or
+    /// smaller), before the chain scales the result down to the display: a little over 4x of 854x480 (6.6 MP) and of
+    /// 768x576 (7.1 MP), well under 4x of 720p (14.7 MP). Every other picture is held to `maximumOutputPixels`.
+    static let maximumModelPixels = 7_500_000
+    /// How much smaller than the scaler's result the picture it hands on may be: a 4x result is scaled down to 2x at
+    /// most. More than that is a model run mostly thrown away, so that factor is left out.
+    static let maximumDownscale = 2.0
+
+    /// A picture of 720p class or smaller: its longer side is at most 1280 and its shorter side at most 720 (a portrait
+    /// clip counts the same as its landscape twin). The best scaler is preferred for these.
+    static func isSmallPicture(_ size: PixelSize) -> Bool {
+        max(size.width, size.height) <= 1280 && min(size.width, size.height) <= 720
+    }
+
+    /// The most pixels a fixed-factor scaler may produce for this picture.
+    static func modelBudget(for source: PixelSize) -> Int {
+        isSmallPicture(source) ? maximumModelPixels : maximumOutputPixels
+    }
+
+    /// The largest scale whose picture stays inside `maximumOutputPixels`.
+    static func outputBudgetScale(_ source: PixelSize) -> Double {
+        guard !source.isEmpty else { return 1 }
+        return (Double(maximumOutputPixels) / Double(source.pixels)).squareRoot()
+    }
+
+    /// The picture a fixed-factor scaler makes of `source` at `factor`: its size in pixels.
+    static func modelPixels(_ source: PixelSize, _ factor: Double) -> Double {
+        Double(source.pixels) * factor * factor
+    }
+
+    /// The size the chain carries on with after a fixed-factor scaler whose own result is `model`. A result inside
+    /// `maximumOutputPixels` is used as it is; a bigger one (only a small picture may make one) is scaled down to the
+    /// display's need, held to the output budget.
+    static func rungOutput(model: PixelSize, source: PixelSize, needed: Double) -> PixelSize {
+        guard model.pixels > maximumOutputPixels else { return model }
+        return scaled(source, by: min(max(needed, 1), maximumScale, outputBudgetScale(source)))
+    }
+
+    /// Why this picture gets the ladder it does, for the `enhance-rungs` line.
+    static func ladderPolicy(source: PixelSize) -> String {
+        let model = String(format: "%.1f", Double(modelBudget(for: source)) / 1_000_000)
+        if isSmallPicture(source) {
+            return "\(source) is 720p class or smaller: the best scaler goes first, and a model run up to \(model) MP a frame is allowed before the result is scaled down to the display"
+        }
+        return "\(source) is above 720p class: a model run over \(model) MP a frame is too costly for live video"
+    }
 
     /// The scale that makes the source, with its pixel shape, just fit the target (aspect fit).
     static func fitScale(source: SourcePicture, target: PixelSize) -> Double {
@@ -62,17 +108,25 @@ enum EnhanceMath {
     }
 
     /// The factor a fixed-factor scaler runs at: of those that `fits`, the one nearest the needed scale as a
-    /// ratio, the smaller on a tie. Scales the pixel budget forbids never qualify. The display's own scaler
-    /// covers the difference.
+    /// ratio, the smaller on a tie. A factor whose result is over the picture's `modelBudget` never qualifies. A result
+    /// over `maximumOutputPixels` (only a small picture may make one) qualifies when scaling it down to what the
+    /// display needs is at most `maximumDownscale`. The display's own scaler covers the rest of the difference.
     static func factor(needed: Double, source: PixelSize, from factors: [Double], fits: (Double) -> Bool = { _ in true }) -> Double? {
         let wanted = max(min(needed, maximumScale), 1)
         let candidates = factors.filter { factor in
-            factor > 1 && Double(source.pixels) * factor * factor <= Double(maximumOutputPixels) && fits(factor)
+            factor > 1 && fair(factor, source: source, wanted: wanted) && fits(factor)
         }
         return candidates.min { lhs, rhs in
             let left = abs(log(lhs / wanted)), right = abs(log(rhs / wanted))
             return left == right ? lhs < rhs : left < right
         }
+    }
+
+    private static func fair(_ factor: Double, source: PixelSize, wanted: Double) -> Bool {
+        let made = modelPixels(source, factor)
+        guard made <= Double(modelBudget(for: source)) else { return false }
+        guard made > Double(maximumOutputPixels) else { return true }
+        return factor / min(wanted, outputBudgetScale(source)) <= maximumDownscale
     }
 
     /// What a fixed-factor scaler does with a picture.
@@ -84,11 +138,12 @@ enum EnhanceMath {
     }
 
     /// Picks the factor a fixed-factor scaler runs at, or says why it does not run. The factors are all the scaler
-    /// offers for this picture: it cannot make any other size, so a factor whose output is over the pixel budget
-    /// (`maximumOutputPixels`, the same bound every scaler's output obeys) is out, however good the picture it
-    /// would make. Apple's quality super-resolution offers only 4x on the iPhone 17 Pro: 4x of 720p is 14.7 MP a
-    /// frame, 4x the budget, a model run that is not credible at 24 to 30 frames a second on a phone, so that scaler
-    /// is skipped with a plain reason and the ladder goes on to the next rung.
+    /// offers for this picture: it cannot make any other size, so a factor whose result is over the picture's budget
+    /// (`modelBudget(for:)`) is out, however good the picture it would make. Apple's quality super-resolution offers only
+    /// 4x on the iPhone 17 Pro: 4x of 720p is 14.7 MP a frame, twice even the small-picture budget, a model run that is
+    /// not credible at 24 to 30 frames a second on a phone, so that scaler is skipped with a plain reason and the
+    /// ladder goes on to the next rung. 4x of a 480p-class picture (6.6 MP) is inside the small-picture budget and
+    /// runs, and its result is then scaled down to the display (`rungOutput`).
     static func fixedFactor(
         needed: Double, source: PixelSize, from offered: [Double], fits: (Double) -> Bool = { _ in true }
     ) -> FactorVerdict {
@@ -97,10 +152,17 @@ enum EnhanceMath {
             return .skip("it offers no scale factor above 1x for a \(source) picture (it offers \(factorList(offered)))")
         }
         if let chosen = factor(needed: needed, source: source, from: offered, fits: fits) { return .use(chosen) }
-        let affordable = upscales.contains { Double(source.pixels) * $0 * $0 <= Double(maximumOutputPixels) }
-        guard affordable else {
+        let budget = Double(modelBudget(for: source))
+        let affordable = upscales.filter { modelPixels(source, $0) <= budget }
+        guard let cheapest = affordable.min() else {
             let which = upscales.count == 1 ? "only \(factorText(smallest))x" : "nothing under \(factorText(smallest))x"
             return .skip("\(which), too costly for live video")
+        }
+        if affordable.allSatisfy(fits) {
+            let target = min(max(min(needed, maximumScale), 1), outputBudgetScale(source))
+            return .skip(
+                "\(factorText(cheapest))x fits the budget but is more than twice the \(String(format: "%.1f", target))x the display needs"
+            )
         }
         return .skip("no scale factor fits a \(source) picture (it offers \(factorList(offered)))")
     }
@@ -127,6 +189,43 @@ enum EnhanceMath {
     /// How far the deband pass looks, in output pixels: wider for stronger smoothing, and scaled with the picture.
     static func debandRadius(_ strength: Double, scale: Double) -> Float {
         Float((4 + 12 * strength) * max(1, scale))
+    }
+
+    // MARK: Denoise, deblock and vivid (v3.1.0)
+
+    /// How different two pixels' colours may be, as a fraction of full scale, and still be averaged by the denoiser's
+    /// spatial step: noise is smoothed, a real edge stays.
+    static func denoiseRange(_ strength: Double) -> Float { Float((3 + 14 * strength) / 255) }
+
+    /// How much of the spatial average goes into the picture.
+    static func denoiseSpatialAmount(_ strength: Double) -> Float { Float(0.25 + 0.5 * strength) }
+
+    /// The mean brightness change between frames, around a pixel, that still counts as noise rather than motion.
+    static func denoiseTolerance(_ strength: Double) -> Float { Float((3 + 12 * strength) / 255) }
+
+    /// The weight of the previous frame in a still area: 0.4 is a short memory, 0.9 about ten frames.
+    static func denoiseHistoryWeight(_ strength: Double) -> Float { Float(0.4 + 0.5 * strength) }
+
+    /// The largest step across a block edge that is softened, as a fraction of full scale: 3 to 20 codes of 255.
+    static func deblockStep(_ strength: Double) -> Float { Float((3 + 17 * strength) / 255) }
+
+    /// How busy the picture beside the edge may be and still be softened: 2 to 8 codes of 255.
+    static func deblockActivity(_ strength: Double) -> Float { Float((2 + 6 * strength) / 255) }
+
+    /// How much of the correction is applied: 0.4 at the faintest, all of it from half strength.
+    static func deblockAmount(_ strength: Double) -> Float { Float(min(1, 0.4 + 1.2 * strength)) }
+
+    /// How far the vivid pass looks for the local average, in output pixels.
+    static func vividRadius(outputHeight: Int) -> Float { Float(max(4, Double(outputHeight) / 120)) }
+
+    /// The size of the dither the final pass adds, in codes of 255: debanding needs it, and so do denoising and vivid,
+    /// which smooth or stretch gradients that would otherwise step. Zero when none of them is on.
+    static func ditherCodes(deband: Double, denoise: Double, vivid: Double) -> Float {
+        var codes: Float = 0
+        if deband > 0 { codes = Float(0.5 + 0.5 * deband) }
+        if denoise > 0 { codes = max(codes, 0.75) }
+        if vivid > 0 { codes = max(codes, 0.5) }
+        return codes
     }
 }
 
@@ -181,7 +280,10 @@ enum EnhanceLadder {
 
     /// Why each rung is or is not the one in use, best first, for the diagnostics. `ceiling` is the rank the governor
     /// has demoted the chain to.
-    static func explain(_ ladder: [EnhanceUpscalerKind], statuses: [EnhanceUpscalerKind: RungStatus], ceiling: Int) -> [RungReason] {
+    /// `smallPicture` says the picture is 720p class or smaller, which gets the best scaler first.
+    static func explain(
+        _ ladder: [EnhanceUpscalerKind], statuses: [EnhanceUpscalerKind: RungStatus], ceiling: Int, smallPicture: Bool = false
+    ) -> [RungReason] {
         let chosen = active(ladder, statuses: statuses, ceiling: ceiling)
         return ladder.enumerated().map { rank, kind in
             let status = statuses[kind] ?? .untried
@@ -197,7 +299,7 @@ enum EnhanceLadder {
                         text = "not tried: the chain was demoted below it"
                     }
                 } else if chosen?.kind == kind {
-                    text = "chosen"
+                    text = smallPicture && rank == 0 ? "chosen: the best scaler, which a small picture gets first" : "chosen"
                 } else if let chosen, chosen.rank < rank {
                     text = status == .untried ? "not tried: a better rung is in use" : "not needed: a better rung is in use"
                 } else if status == .preparing {
@@ -262,11 +364,13 @@ extension EnhanceMath {
         if options.upscaler != .off, fitScale(source: source, target: context.target) >= minimumUpscaleRatio {
             scaler = EnhanceLadder.active(EnhanceLadder.rungs(for: options.upscaler), statuses: context.statuses, ceiling: context.ceiling)
         }
-        guard scaler != nil || options.sharpen > 0 || options.deband > 0 else { return .idle }
+        let perPixel = options.sharpen > 0 || options.deband > 0 || options.denoise > 0 || options.deblock > 0 || options.vivid > 0
+        guard scaler != nil || perPixel else { return .idle }
         let output = scaler?.output ?? source.size
         return .run(EnhancePlan(
             upscaler: scaler?.kind, sourceWidth: source.size.width, sourceHeight: source.size.height,
-            outputWidth: output.width, outputHeight: output.height, sharpen: options.sharpen, deband: options.deband
+            outputWidth: output.width, outputHeight: output.height, sharpen: options.sharpen, deband: options.deband,
+            denoise: options.denoise, deblock: options.deblock, vivid: options.vivid
         ))
     }
 }
@@ -451,5 +555,67 @@ struct LanczosTaps: Sendable, Equatable {
         if distance >= 3 { return 0 }
         let angle = Double.pi * distance
         return 3 * sin(angle) * sin(angle / 3) / (angle * angle)
+    }
+}
+
+/// Taps for scaling a line of `source` samples down to fewer, `output`. Lanczos-2 stretched by the ratio, so it
+/// averages the samples that fall in each output sample instead of skipping them, with eight taps: enough for a ratio
+/// up to 2 (`EnhanceMath.maximumDownscale`). Each output sample has the first source sample it reads and eight weights that
+/// sum to one; reads past either end repeat the edge sample.
+struct DownscaleTaps: Sendable, Equatable {
+    static let count = 8
+    private(set) var starts: [Int32] = []
+    private(set) var weights: [Float] = []
+
+    init(source: Int, output: Int) {
+        let ratio = max(Double(max(source, 1)) / Double(max(output, 1)), 1)
+        starts.reserveCapacity(max(output, 0))
+        weights.reserveCapacity(max(output, 0) * Self.count)
+        for index in 0..<max(output, 0) {
+            let centre = (Double(index) + 0.5) * ratio - 0.5
+            let first = Int(centre.rounded(.down)) - Self.count / 2 + 1
+            let row = (0..<Self.count).map { Self.kernel((centre - Double(first + $0)) / ratio) }
+            let sum = row.reduce(0, +)
+            starts.append(Int32(first))
+            weights.append(contentsOf: row.map { Float($0 / sum) })
+        }
+    }
+
+    /// Lanczos with two lobes.
+    static func kernel(_ x: Double) -> Double {
+        let distance = abs(x)
+        if distance < 1e-9 { return 1 }
+        if distance >= 2 { return 0 }
+        let angle = Double.pi * distance
+        return 2 * sin(angle) * sin(angle / 2) / (angle * angle)
+    }
+}
+
+/// Whether the denoiser's last result may be blended into the next frame. It may when it came from the frame just
+/// before this one, in the same stretch of video: not after a seek, a new item, a size or scaler change or a pause
+/// (the enhancer's `epoch` counts those), and not when the video's time went backwards or jumped.
+struct DenoiseMemory: Sendable, Equatable {
+    /// The longest gap between two frames that still counts as consecutive, in seconds.
+    static let longestGap = 0.5
+
+    private var epoch = -1
+    private var lastTime: Double?
+    private var filled = false
+
+    func remembers(epoch current: Int, time: Double?) -> Bool {
+        guard filled, epoch == current else { return false }
+        guard let time, let lastTime else { return true }
+        let gap = time - lastTime
+        return gap >= 0 && gap <= Self.longestGap
+    }
+
+    mutating func record(epoch: Int, time: Double?) {
+        self.epoch = epoch
+        lastTime = time
+        filled = true
+    }
+
+    mutating func forget() {
+        self = DenoiseMemory()
     }
 }

@@ -289,4 +289,54 @@ struct PictureEnhancerTests {
         }
         enhancer.detach()
     }
+
+    @Test(.enabled(if: buffersShare, needsSharing))
+    func denoiseDeblockAndVividRunWithoutAScalerAndAreLogged() async throws {
+        let buffer = try #require(makeBuffer(width: 640, height: 360))
+        let logs = LogLines()
+        let options = EnhanceOptions(upscaler: .off, denoise: 0.5, deblock: 0.5, vivid: 0.5)
+        let enhancer = PictureEnhancer(options: options, logger: logs.logger)
+        enhancer.displaySize = CGSize(width: 1280, height: 720)
+        enhancer.attach(to: dummyItem())
+        enhancer.setTrackOrientation(.known(.upright))
+        try await pump(enhancer, frame: buffer) { enhancer.statistics.shown >= 4 }
+        let report = "\(enhancer.statistics) \(enhancer.state)\n\(logs.text)"
+        #expect(enhancer.statistics.shown >= 4, Comment(rawValue: report))
+        #expect(enhancer.statistics.failed == 0, Comment(rawValue: report))
+        if case .running(let plan) = enhancer.state {
+            #expect(plan.denoise == 0.5 && plan.deblock == 0.5 && plan.vivid == 0.5, Comment(rawValue: report))
+            #expect(plan.extraPasses == 1)
+        } else {
+            Issue.record(Comment(rawValue: "not running: \(report)"))
+        }
+        #expect(logs.text.contains("denoise=0.5"), Comment(rawValue: report))
+        #expect(logs.text.contains("deblock=0.5") && logs.text.contains("vivid=0.5"), Comment(rawValue: report))
+        // Turning a strength down while playing is a tuning change: the frames keep coming and nothing fails.
+        let before = enhancer.statistics.shown
+        enhancer.options.denoise = 0
+        try await pump(enhancer, frame: buffer) { enhancer.statistics.shown >= before + 3 }
+        #expect(enhancer.statistics.shown >= before + 3, Comment(rawValue: report))
+        #expect(enhancer.statistics.failed == 0)
+        enhancer.detach()
+    }
+
+    @Test(.enabled(if: buffersShare, needsSharing))
+    func denoiseRunsAfterAScalerAtTheScaledSize() async throws {
+        let buffer = try #require(makeBuffer(width: 640, height: 360))
+        let logs = LogLines()
+        let enhancer = PictureEnhancer(options: EnhanceOptions(upscaler: .lineArt, denoise: 0.7), logger: logs.logger)
+        enhancer.displaySize = CGSize(width: 1280, height: 720)
+        enhancer.attach(to: dummyItem())
+        enhancer.setTrackOrientation(.known(.upright))
+        var baseline: Int?
+        try await pump(enhancer, frame: buffer) {
+            guard case .running(let plan) = enhancer.state, plan.outputWidth > 640 else { return false }
+            if baseline == nil { baseline = enhancer.statistics.shown }
+            return enhancer.statistics.shown >= (baseline ?? 0) + 3
+        }
+        let report = "\(enhancer.statistics) \(enhancer.state)\n\(logs.text)"
+        #expect(enhancer.statistics.shown >= (baseline ?? 0) + 3, Comment(rawValue: report))
+        #expect(enhancer.statistics.failed == 0, Comment(rawValue: report))
+        enhancer.detach()
+    }
 }

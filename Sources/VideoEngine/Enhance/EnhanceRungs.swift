@@ -19,6 +19,8 @@ struct PlayerPicture {
     var fullRange: Bool
     /// The window of the frame that is shown and how it is turned: what makes the player's frame the upright picture.
     var geometry: IngestGeometry = .identity
+    /// How block edges in the luma are softened on the way in; off when the deblock stage is.
+    var deblock: DeblockParameters = .off
 
     var coefficients: IngestCoefficients { IngestCoefficients(matrix: matrix, fullRange: fullRange) }
 }
@@ -37,8 +39,8 @@ struct RungFrame {
     /// Turns the player's NV12 frame into the upright BGRA picture the rung reads, cropped and turned as it is shown.
     func ingestSource(into commands: any MTLCommandBuffer) throws {
         try gpu.ingest(
-            player.coefficients, geometry: player.geometry, luma: player.luma, chroma: player.chroma, output: source.texture,
-            commands: commands
+            player.coefficients, geometry: player.geometry, deblock: player.deblock, luma: player.luma, chroma: player.chroma,
+            output: source.texture, commands: commands
         )
     }
 }
@@ -255,6 +257,9 @@ final class VideoToolboxRung: ScalerRung, @unchecked Sendable {
     private let formats: Formats
     /// Only when the scaler writes 420v: the BGRA picture made from it, which the rest of the chain reads.
     private let converted: (any MTLTexture)?
+    /// Only when the scaler's result is bigger than the chain's output budget (a 4x result of a small picture): the
+    /// plan and the BGRA texture for scaling it down to the size the chain carries on with, which is `output`.
+    private let fit: (plan: LanczosPlan, texture: any MTLTexture)?
     private let processor = VTFrameProcessor()
     private var started = false
     /// The last frame handed to the quality scaler, which uses it to keep the picture steady from frame to frame.
@@ -262,7 +267,8 @@ final class VideoToolboxRung: ScalerRung, @unchecked Sendable {
 
     private init(
         kind: EnhanceUpscalerKind, flavor: Flavor, gpu: EnhanceGPU, formats: Formats, output: PixelSize, sources: PooledSurfaces,
-        scaled: PooledSurfaces, converted: (any MTLTexture)?, notes: [(String, String)]
+        scaled: PooledSurfaces, converted: (any MTLTexture)?, fit: (plan: LanczosPlan, texture: any MTLTexture)?,
+        notes: [(String, String)]
     ) {
         self.kind = kind
         self.flavor = flavor
@@ -272,6 +278,7 @@ final class VideoToolboxRung: ScalerRung, @unchecked Sendable {
         self.sources = sources
         self.scaled = scaled
         self.converted = converted
+        self.fit = fit
         self.notes = notes
     }
 
@@ -347,28 +354,42 @@ final class VideoToolboxRung: ScalerRung, @unchecked Sendable {
         let expected = EnhanceMath.scaled(request.source, by: factor)
         let width = (destinationAttributes[kCVPixelBufferWidthKey as String] as? Int) ?? expected.width
         let height = (destinationAttributes[kCVPixelBufferHeightKey as String] as? Int) ?? expected.height
-        let output = PixelSize(width: width, height: height)
+        let modelOutput = PixelSize(width: width, height: height)
         let usage = EnhanceRungs.usage(including: [])
         guard let sources = PooledSurfaces(
                   size: request.source, format: formatIn, requirements: sourceAttributes, usage: usage, minimum: 2, ceiling: 4,
                   cache: request.gpu.cache),
               let scaled = PooledSurfaces(
-                  size: output, format: formatOut, requirements: destinationAttributes, usage: usage, minimum: 2, ceiling: 4,
+                  size: modelOutput, format: formatOut, requirements: destinationAttributes, usage: usage, minimum: 2, ceiling: 4,
                   cache: request.gpu.cache)
         else { throw EnhanceFailure("no memory for the scaler's buffers") }
         var converted: (any MTLTexture)?
         if formatOut != .bgra {
-            converted = request.gpu.makeTexture(output, format: .bgra8Unorm)
+            converted = request.gpu.makeTexture(modelOutput, format: .bgra8Unorm)
             if converted == nil { throw EnhanceFailure("no memory for the scaler's textures") }
+        }
+        // A small picture may be given a result bigger than the chain's output budget; it is scaled down to what the
+        // display needs, so the passes after it and the display buffers stay within the budget.
+        let output = EnhanceMath.rungOutput(model: modelOutput, source: request.source, needed: request.needed)
+        var fit: (plan: LanczosPlan, texture: any MTLTexture)?
+        if output != modelOutput {
+            guard Double(modelOutput.width) / Double(output.width) <= EnhanceMath.maximumDownscale + 0.05,
+                  Double(modelOutput.height) / Double(output.height) <= EnhanceMath.maximumDownscale + 0.05
+            else { throw EnhanceFailure("its \(modelOutput) result is more than twice the \(output) the display needs") }
+            guard let plan = request.gpu.makeDownscalePlan(source: modelOutput, output: output),
+                  let texture = request.gpu.makeTexture(output, format: .bgra8Unorm)
+            else { throw EnhanceFailure("no memory for the scaler's textures") }
+            fit = (plan, texture)
         }
         var notes: [(String, String)] = [
             ("scale", EnhanceMath.factorText(factor)), ("formats", EnhanceFormats.describe(supported)),
             ("in", formatIn.name), ("out", formatOut.name),
         ]
+        if fit != nil { notes.append(("model-out", modelOutput.description)) }
         notes.append(contentsOf: extra)
         let rung = VideoToolboxRung(
             kind: kind, flavor: flavor, gpu: request.gpu, formats: Formats(source: formatIn, scaled: formatOut), output: output,
-            sources: sources, scaled: scaled, converted: converted, notes: notes
+            sources: sources, scaled: scaled, converted: converted, fit: fit, notes: notes
         )
         do {
             try rung.processor.startSession(configuration: configuration)
@@ -399,8 +420,8 @@ final class VideoToolboxRung: ScalerRung, @unchecked Sendable {
                 throw EnhanceFailure("the scaler takes 420v pictures and this frame is not video range")
             }
             try frame.gpu.reorient(
-                frame.player.geometry, luma: frame.player.luma, chroma: frame.player.chroma, toLuma: frame.source.texture,
-                toChroma: chroma, commands: commands
+                frame.player.geometry, deblock: frame.player.deblock, luma: frame.player.luma, chroma: frame.player.chroma,
+                toLuma: frame.source.texture, toChroma: chroma, commands: commands
             )
         }
         guard let sourceBuffer = frame.source.buffer, let scaledBuffer = frame.scaled.buffer,
@@ -423,18 +444,19 @@ final class VideoToolboxRung: ScalerRung, @unchecked Sendable {
             previous = (input, destination, frame.sequence)
             processor.process(with: commands, parameters: parameters)
         }
-        switch formats.scaled {
-        case .bgra:
-            return frame.scaled.texture
-        case .nv12VideoRange:
+        var result = frame.scaled.texture
+        if formats.scaled == .nv12VideoRange {
             guard let converted, let chroma = frame.scaled.chroma else {
                 throw EnhanceFailure("no BGRA picture to convert the scaler's 420v output into")
             }
             // The scaler keeps the video's own matrix and range.
             let coefficients = IngestCoefficients(matrix: frame.player.matrix, fullRange: false)
             try gpu.ingest(coefficients, luma: frame.scaled.texture, chroma: chroma, output: converted, commands: commands)
-            return converted
+            result = converted
         }
+        guard let fit else { return result }
+        try gpu.downscale(fit.plan, input: result, output: fit.texture, commands: commands)
+        return fit.texture
     }
 }
 #endif

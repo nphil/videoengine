@@ -176,8 +176,8 @@ private final class LinkTarget: NSObject {
 }
 
 /// Makes the picture of an SDR video better while it plays, on the device's GPU: a scaler that fills the display
-/// with real detail, a contrast-adaptive sharpen and a deband, each optional and changeable at any time through
-/// `options`. Nothing is on by default.
+/// with real detail, a contrast-adaptive sharpen, a deband, a noise reduction, a block-artifact softener and a vivid
+/// tone boost, each optional and changeable at any time through `options`. Nothing is on by default.
 ///
 /// How it is used: put `layer` above the player's own layer with the same frame and video gravity, give the
 /// enhancer the `AVPlayerItem` that plays, and tell it how many pixels the picture covers on screen.
@@ -201,8 +201,8 @@ public final class PictureEnhancer {
     public let layer: AVSampleBufferDisplayLayer
 
     /// What to do to the picture. Change it at any time; the chain follows within a frame or two. A slider dragged in
-    /// small steps is fine: sharpen and deband changes that come faster than ten a second are held back and only the
-    /// newest is applied, and no strength change rebuilds the scaler. Reading it gives the newest value set.
+    /// small steps is fine: strength changes (sharpen, deband, denoise, deblock, vivid) that come faster than ten a
+    /// second are held back and only the newest is applied, and no strength change rebuilds the scaler. Reading it gives the newest value set.
     public var options: EnhanceOptions {
         get { requested }
         set {
@@ -254,6 +254,8 @@ public final class PictureEnhancer {
     private var rungGeneration = 0
     private var governor = EnhanceGovernor()
     private var chain: Chain?
+    /// The denoiser's two textures and its record of the last frame; nil while denoise is off.
+    private var denoiseHistory: DenoiseHistory?
     /// The newest options set, and the ones the chain works from, which can lag a few frames behind during a drag.
     private var requested: EnhanceOptions
     private var applied: EnhanceOptions
@@ -424,7 +426,7 @@ public final class PictureEnhancer {
         guard needed >= EnhanceMath.minimumUpscaleRatio else { return }
         let ladder = EnhanceLadder.rungs(for: context.options.upscaler)
         guard let kind = EnhanceLadder.nextToPrepare(ladder, statuses: statuses, ceiling: context.ceiling) else {
-            logRungs(ladder, ceiling: context.ceiling)
+            logRungs(ladder, ceiling: context.ceiling, source: picture.size)
             return
         }
         prepare(kind, needed: needed, source: picture.size)
@@ -464,6 +466,7 @@ public final class PictureEnhancer {
         statuses = [:]
         rungs = [:]
         chain = nil
+        denoiseHistory = nil
         governor.restartCount()
         lastRungLine = ""
     }
@@ -686,6 +689,16 @@ public final class PictureEnhancer {
             fail("no memory for the output buffers", rung: nil)
             return
         }
+        var denoiser: DenoiseHistory?
+        if plan.denoise > 0 {
+            denoiser = ensureDenoiseHistory(for: plan, gpu: gpu)
+            if denoiser == nil {
+                fail("no memory for the denoiser's textures", rung: nil)
+                return
+            }
+        } else {
+            denoiseHistory = nil
+        }
         var sourceStore: (any SurfaceSource)? = made.plain
         if let rung { sourceStore = rung.sources }
         guard let display = made.display.next(), let displayBuffer = display.buffer,
@@ -710,10 +723,12 @@ public final class PictureEnhancer {
             return
         }
         let time = frame.time.isValid ? frame.time : CMTime(value: Int64(sequence), timescale: 60)
+        let seconds: Double? = frame.time.isValid ? frame.time.seconds : nil
         do {
             let geometry = facts.geometry.map(IngestGeometry.init) ?? .identity
             let player = PlayerPicture(
-                luma: luma.texture, chroma: chroma.texture, matrix: facts.matrix, fullRange: facts.fullRange, geometry: geometry
+                luma: luma.texture, chroma: chroma.texture, matrix: facts.matrix, fullRange: facts.fullRange, geometry: geometry,
+                deblock: DeblockParameters(strength: plan.deblock)
             )
             var composeInput = sourceSurface.texture
             if let rung, let scaledSurface {
@@ -721,18 +736,29 @@ public final class PictureEnhancer {
                 composeInput = try rung.encode(rungFrame, into: commands)
             } else {
                 try gpu.ingest(
-                    player.coefficients, geometry: geometry, luma: player.luma, chroma: player.chroma, output: sourceSurface.texture,
-                    commands: commands
+                    player.coefficients, geometry: geometry, deblock: player.deblock, luma: player.luma, chroma: player.chroma,
+                    output: sourceSurface.texture, commands: commands
                 )
+            }
+            if let denoiser {
+                let step = denoiser.next(epoch: epoch, time: seconds)
+                try gpu.denoise(
+                    DenoiseParameters(strength: plan.denoise, remembers: step.remembers), input: composeInput,
+                    previous: step.previous, output: step.output, commands: commands
+                )
+                composeInput = step.output
             }
             try gpu.compose(composeParameters(for: plan), input: composeInput, output: display.texture, commands: commands)
         } catch {
             fail("\(error)", rung: plan.upscaler)
             return
         }
+        denoiser?.commit(epoch: epoch, time: seconds)
         Self.copyTags(from: frame.buffer, to: displayBuffer, swapsAxes: facts.geometry?.orientation.swapsAxes ?? false)
         let lease = FrameLease(display: displayBuffer, epoch: epoch, deadline: deadline, rank: rank, kind: plan.upscaler)
-        lease.keep = [frame.readOnly as Any, frame.buffer, luma.holder, chroma.holder, display, sourceSurface, scaledSurface as Any, rung as Any]
+        lease.keep = [frame.readOnly as Any, frame.buffer, luma.holder, chroma.holder, display, sourceSurface, scaledSurface as Any, rung as Any,
+            denoiser as Any,
+        ]
         commands.addCompletedHandler { [weak self] finishedCommands in
             let completed = finishedCommands.status == .completed
             let message = finishedCommands.error?.localizedDescription
@@ -752,8 +778,19 @@ public final class PictureEnhancer {
         return ComposeParameters(
             sharpen: Float(plan.sharpen), deband: Float(plan.deband),
             debandRadius: EnhanceMath.debandRadius(plan.deband, scale: scale),
-            debandThreshold: EnhanceMath.debandThreshold(plan.deband), frame: frameCounter
+            debandThreshold: EnhanceMath.debandThreshold(plan.deband), frame: frameCounter,
+            vivid: Float(plan.vivid), vividRadius: EnhanceMath.vividRadius(outputHeight: plan.outputHeight),
+            dither: EnhanceMath.ditherCodes(deband: plan.deband, denoise: plan.denoise, vivid: plan.vivid)
         )
+    }
+
+    /// The denoiser's textures for this plan's output size and scaler: made once, kept while the plan holds, replaced
+    /// when either changes. Nil when the GPU has no memory for them.
+    private func ensureDenoiseHistory(for plan: EnhancePlan, gpu: EnhanceGPU) -> DenoiseHistory? {
+        let size = PixelSize(width: plan.outputWidth, height: plan.outputHeight)
+        if let denoiseHistory, denoiseHistory.matches(size: size, kind: plan.upscaler) { return denoiseHistory }
+        denoiseHistory = DenoiseHistory(gpu: gpu, size: size, kind: plan.upscaler)
+        return denoiseHistory
     }
 
     private func ensureChain(for plan: EnhancePlan, gpu: EnhanceGPU) -> Chain? {
@@ -891,6 +928,7 @@ public final class PictureEnhancer {
     /// three times running means the GPU cannot be used.
     private func fail(_ reason: String, rung kind: EnhanceUpscalerKind?) {
         statistics.failed += 1
+        denoiseHistory = nil
         logger.measurement("enhance-error", [("rung", kind?.rawValue ?? "none"), ("reason", reason)])
         if let kind {
             statuses[kind] = .failed(reason)
@@ -991,11 +1029,14 @@ public final class PictureEnhancer {
 
     /// Says why each rung is or is not in use, once every rung that could change the choice has an answer. Written again
     /// only when the explanation changes: after a demotion, a failure on a frame or a new picture size.
-    private func logRungs(_ ladder: [EnhanceUpscalerKind], ceiling: Int) {
+    private func logRungs(_ ladder: [EnhanceUpscalerKind], ceiling: Int, source: PixelSize) {
         guard EnhanceLadder.isSettled(ladder, statuses: statuses, ceiling: ceiling) else { return }
-        var fields = EnhanceLadder.explain(ladder, statuses: statuses, ceiling: ceiling).map { ($0.kind.rawValue, $0.text) }
+        var fields = EnhanceLadder.explain(
+            ladder, statuses: statuses, ceiling: ceiling, smallPicture: EnhanceMath.isSmallPicture(source)
+        ).map { ($0.kind.rawValue, $0.text) }
         let chosen = EnhanceLadder.active(ladder, statuses: statuses, ceiling: ceiling)
         fields.append(("chosen", chosen?.kind.rawValue ?? "none"))
+        fields.append(("policy", EnhanceMath.ladderPolicy(source: source)))
         let line = fields.map { "\($0.0)=\($0.1)" }.joined(separator: "; ")
         guard line != lastRungLine else { return }
         lastRungLine = line
@@ -1013,7 +1054,8 @@ public final class PictureEnhancer {
             fields = [
                 ("state", "running"), ("scaler", plan.upscaler?.rawValue ?? "none"),
                 ("source", "\(plan.sourceWidth)x\(plan.sourceHeight)"), ("out", "\(plan.outputWidth)x\(plan.outputHeight)"),
-                ("sharpen", String(plan.sharpen)), ("deband", String(plan.deband)),
+                ("sharpen", String(plan.sharpen)), ("deband", String(plan.deband)), ("denoise", String(plan.denoise)),
+                ("deblock", String(plan.deblock)), ("vivid", String(plan.vivid)), ("extra-passes", String(plan.extraPasses)),
             ]
         case .paused(let reason):
             fields = [("state", "paused"), ("reason", reason.rawValue)]

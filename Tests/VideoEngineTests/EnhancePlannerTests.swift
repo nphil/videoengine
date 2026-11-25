@@ -750,3 +750,224 @@ struct EnhanceOptionsFlowTests {
         #expect(applied >= 4 && applied <= 6)
     }
 }
+
+// MARK: v3.1.0: denoise, deblock, vivid and the low-resolution ladder
+
+struct EnhanceEffectOptionsTests {
+    @Test func theNewStagesStartOffAndAreClamped() {
+        let options = EnhanceOptions()
+        #expect(options.denoise == 0 && options.deblock == 0 && options.vivid == 0)
+        var changed = EnhanceOptions(upscaler: .automatic, denoise: 4, deblock: -1, vivid: 0.5)
+        #expect(changed.denoise == 1 && changed.deblock == 0 && changed.vivid == 0.5)
+        changed.denoise = .nan
+        changed.vivid = -3
+        changed.deblock = 7
+        #expect(changed.denoise == 0 && changed.vivid == 0 && changed.deblock == 1)
+    }
+
+    @Test func eachNewStageAloneTurnsTheChainOn() {
+        #expect(EnhanceOptions(denoise: 0.1).isEnabled)
+        #expect(EnhanceOptions(deblock: 0.1).isEnabled)
+        #expect(EnhanceOptions(vivid: 0.1).isEnabled)
+        #expect(!EnhanceOptions(denoise: 0, deblock: 0, vivid: 0).isEnabled)
+    }
+
+    @Test func theLabelledInitKeepsTheOldCallsWorking() {
+        let old = EnhanceOptions(upscaler: .lineArt, sharpen: 0.2, deband: 0.3)
+        #expect(old.denoise == 0 && old.deblock == 0 && old.vivid == 0)
+    }
+
+    @Test func strengthChangesOfTheNewStagesAreTuningAndCoalesce() {
+        let base = EnhanceOptions(upscaler: .automatic, sharpen: 0.3, denoise: 0.2, deblock: 0.2, vivid: 0.2)
+        for edit in [
+            { (o: inout EnhanceOptions) in o.denoise = 0.6 }, { (o: inout EnhanceOptions) in o.deblock = 0.6 },
+            { (o: inout EnhanceOptions) in o.vivid = 0.6 },
+        ] {
+            var changed = base
+            edit(&changed)
+            #expect(changed.change(from: base) == .tuning)
+        }
+        var coalescer = OptionsCoalescer()
+        var first = base
+        first.vivid = 0.3
+        #expect(coalescer.request(first, current: base, now: 10) == first)
+        var second = first
+        second.vivid = 0.4
+        #expect(coalescer.request(second, current: first, now: 10.02) == nil)
+        var third = second
+        third.denoise = 0.9
+        #expect(coalescer.request(third, current: first, now: 10.04) == nil)
+        #expect(coalescer.pending == third)
+        #expect(coalescer.due(current: first, now: 10.2) == third)
+    }
+
+    @Test func thePlanCarriesTheNewStrengthsAndCountsItsExtraPasses() {
+        var plan = EnhancePlan(upscaler: nil, sourceWidth: 640, sourceHeight: 360, outputWidth: 640, outputHeight: 360, sharpen: 0, deband: 0)
+        #expect(plan.denoise == 0 && plan.deblock == 0 && plan.vivid == 0)
+        #expect(plan.extraPasses == 0)
+        plan.deblock = 1
+        plan.vivid = 1
+        #expect(plan.extraPasses == 0)
+        plan.denoise = 0.5
+        #expect(plan.extraPasses == 1)
+    }
+
+    @Test func theNewStagesAloneRunAtTheSourceSize() {
+        let source = SourcePicture(size: PixelSize(width: 1280, height: 720))
+        let context = EnhanceContext(
+            options: EnhanceOptions(denoise: 0.5, deblock: 0.25, vivid: 0.75), source: source,
+            target: PixelSize(width: 2556, height: 1179), statuses: [:]
+        )
+        guard case .run(let plan) = EnhanceMath.decide(context) else {
+            Issue.record("the new stages alone should run")
+            return
+        }
+        #expect(plan.upscaler == nil && plan.outputWidth == 1280 && plan.outputHeight == 720)
+        #expect(plan.denoise == 0.5 && plan.deblock == 0.25 && plan.vivid == 0.75)
+        #expect(plan.sharpen == 0 && plan.deband == 0)
+    }
+
+    @Test func theStrengthMappingsGrowWithStrengthAndStayInRange() {
+        let steps = stride(from: 0.0, through: 1.0, by: 0.25).map { $0 }
+        func rises(_ map: (Double) -> Float) -> Bool {
+            let values = steps.map(map)
+            return zip(values, values.dropFirst()).allSatisfy { $0 < $1 } && values.allSatisfy { $0 > 0 && $0 < 1 }
+        }
+        #expect(rises(EnhanceMath.denoiseRange))
+        #expect(rises(EnhanceMath.denoiseSpatialAmount))
+        #expect(rises(EnhanceMath.denoiseTolerance))
+        #expect(rises(EnhanceMath.denoiseHistoryWeight))
+        #expect(rises(EnhanceMath.deblockStep))
+        #expect(rises(EnhanceMath.deblockActivity))
+        #expect(EnhanceMath.deblockAmount(1) == 1)
+        #expect(EnhanceMath.deblockAmount(0.1) < EnhanceMath.deblockAmount(0.3))
+        #expect(EnhanceMath.denoiseHistoryWeight(1) <= 0.9 + 1e-6)
+    }
+
+    @Test func theDitherFollowsTheStagesThatNeedIt() {
+        #expect(EnhanceMath.ditherCodes(deband: 0, denoise: 0, vivid: 0) == 0)
+        #expect(EnhanceMath.ditherCodes(deband: 1, denoise: 0, vivid: 0) == 1)
+        #expect(EnhanceMath.ditherCodes(deband: 0.2, denoise: 0, vivid: 0) == 0.6)
+        #expect(EnhanceMath.ditherCodes(deband: 0, denoise: 0.1, vivid: 0) == 0.75)
+        #expect(EnhanceMath.ditherCodes(deband: 0, denoise: 0, vivid: 0.1) == 0.5)
+    }
+
+    @Test func theDenoiserOnlyRemembersTheFrameJustBefore() {
+        var memory = DenoiseMemory()
+        #expect(!memory.remembers(epoch: 0, time: 0))
+        memory.record(epoch: 0, time: 1.0)
+        #expect(memory.remembers(epoch: 0, time: 1.04))
+        #expect(memory.remembers(epoch: 0, time: nil))
+        #expect(!memory.remembers(epoch: 1, time: 1.04), "a seek or a new item starts again")
+        #expect(!memory.remembers(epoch: 0, time: 0.5), "time ran backwards")
+        #expect(!memory.remembers(epoch: 0, time: 1.0 + DenoiseMemory.longestGap + 0.1), "too long a gap")
+        memory.forget()
+        #expect(!memory.remembers(epoch: 0, time: 1.04))
+    }
+}
+
+struct EnhanceLowResolutionTests {
+    private let phone = PixelSize(width: 2556, height: 1179)
+    private let sd = PixelSize(width: 854, height: 480)
+
+    @Test func aSmallPictureIs720pClassOrSmallerInEitherOrientation() {
+        #expect(EnhanceMath.isSmallPicture(sd))
+        #expect(EnhanceMath.isSmallPicture(PixelSize(width: 1280, height: 720)))
+        #expect(EnhanceMath.isSmallPicture(PixelSize(width: 720, height: 1280)))
+        #expect(!EnhanceMath.isSmallPicture(PixelSize(width: 1920, height: 1080)))
+        #expect(!EnhanceMath.isSmallPicture(PixelSize(width: 1280, height: 960)))
+    }
+
+    @Test func the4xScalerRunsOn480pClassAndNotOn720p() {
+        #expect(EnhanceMath.fixedFactor(needed: 2.456, source: sd, from: [4]) == .use(4))
+        #expect(EnhanceMath.fixedFactor(needed: 2.456, source: PixelSize(width: 640, height: 480), from: [4]) == .use(4))
+        #expect(EnhanceMath.fixedFactor(needed: 1.67, source: PixelSize(width: 1280, height: 720), from: [4])
+            == .skip("only 4x, too costly for live video"))
+    }
+
+    @Test func aFactorMoreThanTwiceWhatTheDisplayNeedsIsSkippedWithThatReason() {
+        guard case .skip(let reason) = EnhanceMath.fixedFactor(needed: 1.5, source: PixelSize(width: 640, height: 480), from: [4]) else {
+            Issue.record("expected a skip")
+            return
+        }
+        #expect(reason.contains("more than twice"))
+    }
+
+    @Test func aResultOverTheBudgetIsScaledDownToWhatTheDisplayNeeds() {
+        let model = EnhanceMath.scaled(sd, by: 4)
+        #expect(model.pixels > EnhanceMath.maximumOutputPixels)
+        let output = EnhanceMath.rungOutput(model: model, source: sd, needed: 2.456)
+        #expect(output == EnhanceMath.scaled(sd, by: 2.456))
+        #expect(output.pixels <= EnhanceMath.maximumOutputPixels)
+        #expect(Double(model.width) / Double(output.width) <= EnhanceMath.maximumDownscale)
+        let inside = EnhanceMath.scaled(sd, by: 2)
+        #expect(EnhanceMath.rungOutput(model: inside, source: sd, needed: 2.456) == inside)
+    }
+
+    @Test func aPictureThatNeedsLessThanTheBudgetNeverGetsMoreThanTheBudget() {
+        let model = EnhanceMath.scaled(sd, by: 4)
+        let output = EnhanceMath.rungOutput(model: model, source: sd, needed: 3.5)
+        #expect(output.pixels <= EnhanceMath.maximumOutputPixels)
+    }
+
+    @Test func theBestScalerGoesFirstAndTheReasonSaysSo() {
+        let automatic = EnhanceLadder.rungs(for: .automatic)
+        let size = EnhanceMath.scaled(sd, by: 2.456)
+        let all: [EnhanceUpscalerKind: RungStatus] = [
+            .videoToolboxSuperResolution: .ready(size), .videoToolboxLowLatency: .ready(size), .metalFXSpatial: .ready(size),
+            .lanczos: .ready(size),
+        ]
+        #expect(EnhanceLadder.active(automatic, statuses: all, ceiling: 0)?.kind == .videoToolboxSuperResolution)
+        let reasons = EnhanceLadder.explain(automatic, statuses: all, ceiling: 0, smallPicture: true)
+        #expect(reasons[0].text == "chosen: the best scaler, which a small picture gets first")
+        #expect(reasons[1].text == "not needed: a better rung is in use")
+        #expect(EnhanceLadder.explain(automatic, statuses: all, ceiling: 0)[0].text == "chosen")
+    }
+
+    @Test func theFallbackOrderIsLowLatencyThenMetalFXThenLanczos() {
+        let automatic = EnhanceLadder.rungs(for: .automatic)
+        let size = EnhanceMath.scaled(sd, by: 2.456)
+        var all: [EnhanceUpscalerKind: RungStatus] = [
+            .videoToolboxSuperResolution: .failed("no memory"), .videoToolboxLowLatency: .ready(size), .metalFXSpatial: .ready(size),
+            .lanczos: .ready(size),
+        ]
+        #expect(EnhanceLadder.active(automatic, statuses: all, ceiling: 0)?.kind == .videoToolboxLowLatency)
+        all[.videoToolboxLowLatency] = .failed("x")
+        #expect(EnhanceLadder.active(automatic, statuses: all, ceiling: 0)?.kind == .metalFXSpatial)
+        all[.metalFXSpatial] = .failed("x")
+        #expect(EnhanceLadder.active(automatic, statuses: all, ceiling: 0)?.kind == .lanczos)
+        // A late-frame demote still steps one rung down from the best.
+        all = [.videoToolboxSuperResolution: .ready(size), .videoToolboxLowLatency: .ready(size), .lanczos: .ready(size)]
+        #expect(EnhanceLadder.active(automatic, statuses: all, ceiling: 1)?.kind == .videoToolboxLowLatency)
+    }
+
+    @Test func thePolicyLineSaysWhichClassThePictureIsIn() {
+        #expect(EnhanceMath.ladderPolicy(source: sd).contains("720p class or smaller"))
+        #expect(EnhanceMath.ladderPolicy(source: PixelSize(width: 1920, height: 1080)).contains("above 720p class"))
+    }
+}
+
+struct DownscaleTapsTests {
+    @Test func everyRowSumsToOneAndCoversTheSamplesUnderItsOutputPixel() {
+        let taps = DownscaleTaps(source: 3416, output: 2097)
+        #expect(taps.starts.count == 2097 && taps.weights.count == 2097 * DownscaleTaps.count)
+        for index in 0..<2097 {
+            let row = taps.weights[(index * 8)..<(index * 8 + 8)]
+            #expect(abs(row.reduce(0, +) - 1) < 1e-5)
+        }
+        // The pixel under the middle of output pixel 100 is source 100 * ratio + ratio / 2, and its tap sits in the window.
+        let ratio = 3416.0 / 2097.0
+        let centre = Int((100.5 * ratio - 0.5).rounded(.down))
+        #expect(Int(taps.starts[100]) <= centre && centre < Int(taps.starts[100]) + 8)
+    }
+
+    @Test func aFlatLineStaysFlatAndAnEqualSizeIsTheIdentity() {
+        let same = DownscaleTaps(source: 64, output: 64)
+        for index in 0..<64 {
+            let row = Array(same.weights[(index * 8)..<(index * 8 + 8)])
+            let centre = Int(same.starts[index]) + (row.firstIndex(of: row.max() ?? 0) ?? 0)
+            #expect(centre == index)
+            #expect((row.max() ?? 0) > 0.99)
+        }
+    }
+}
