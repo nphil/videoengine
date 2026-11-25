@@ -162,6 +162,8 @@ public final class RemuxSession: Sendable {
         if !replacingCurrent, let url = try currentURL() { return url }
         let fileURL = options.tempDirectory.appendingPathComponent("\(options.tempFilePrefix)\(UUID().uuidString).mp4")
         let run = RemuxRun(fileURL: fileURL, startTime: max(0, time), openTimeout: options.openTimeout, logger: logger)
+        // A copy, so the server's log closure does not keep the session alive.
+        let loopLogger = logger
         let server = LoopbackServer(routes: [
             LoopbackRoute(path: "/master.m3u8", .playlist({ run.multivariantPlaylist() })),
             LoopbackRoute(path: "/index.m3u8", .playlist({ run.playlist() })),
@@ -169,7 +171,8 @@ public final class RemuxSession: Sendable {
             LoopbackRoute(path: "/media.mp4", .growingFile(
                 fileURL, availableBytes: { run.bytesWritten }, isComplete: { run.isComplete }, contentType: "video/mp4"
             )),
-        ], queueLabel: "videoengine-remux")
+        ], queueLabel: "videoengine-remux", log: { loopLogger.loopback($0, $1) })
+        EngineDiagnostics.track(server)
         let base: URL
         do {
             base = try await server.start()

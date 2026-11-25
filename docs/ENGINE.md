@@ -156,7 +156,9 @@ session.stop()
 - **Suspension.** iOS takes a suspended app's listening socket away, and the
   loopback listener fails when the app runs again (a paused Picture in
   Picture is suspended). `LoopbackServer` then listens on the same port again,
-  up to five attempts, so the URLs AVPlayer holds keep working.
+  so the URLs AVPlayer holds keep working: at once, then after growing pauses
+  (0.2 s longer each time, at most 2 s), 40 attempts in about 70 s. If it gives
+  up, the log says so and `loop-state` shows `listener=dead` (see Diagnostics).
 - `RemuxSession.sweepStaleFiles(in:prefixes:)` removes temp files a killed
   process left behind; call it at launch.
 
@@ -559,10 +561,71 @@ third-party shader source is used, so there are no licence notices to add.
 - `EngineDiagnostics.report()` returns the recent measured lines for a support
   screen or bug report: `perf-remux` (start-up stages per run), `perf-run`
   (bytes, segments, lead, free memory, thermal state per run), `hw-id` to
-  `hw-eng` (first snapshot), `hw-state` (on change) and `hw-probe` (per probe).
+  `hw-eng` (first snapshot), `hw-state` (on change) and `hw-probe` (per probe),
+  then the loopback server's `loop-req` and `loop-state` lines, described below.
 - The enhancer's `enhance-*` lines are listed under Enhance picture.
 - Each stage is also an `os_signpost` interval, subsystem `VideoEngine`,
   category `stages`, for Instruments.
+
+#### Loopback server lines: `loop-req` and `loop-state`
+
+AVPlayer reads a remux run from the loopback server on `127.0.0.1`. When playback
+stalls with no engine event and no error, the first question is what the player
+last asked for and how the server answered. Both line types go to the
+`EngineLogger` as events and into `report()`: the last 120 written, then, for each
+of the last four servers still running, its `loop-state` line and one `loop-req`
+line per request still open. `LoopbackServer` takes an optional `log` closure for
+the same events, `diagnosticLines()` returns the live lines, and
+`recentRequests()` the last 16 requests.
+
+`loop-req` is one line per request, written when it ends: its reply was sent, or
+its connection closed first.
+
+| Field | Meaning |
+|-------|---------|
+| `id`, `conn` | request number and connection number (one request per connection) |
+| `kind` | `playlist`, `media` (the growing file), `data`, `generated`, or `none` (no such path: 404) |
+| `path`, `range` | the path and the `Range` header, `-` when there is none |
+| `status` | the status sent, or `pending` when the connection closed before any was sent |
+| `stage` | only on a request still open: `waiting` (for bytes the run has not written) or `sending` (reply queued, the client is not reading) |
+| `bytes`, `ms`, `ready_ms` | body bytes; request to end; request to the moment the reply was ready |
+| `conns` | connections open when it ended |
+| `sent` | `ok`, `failed:<error>` (the send failed) or `aborted:<error>` (the client closed first), such as `posix-ECONNRESET` |
+| `detail` | playlist: `segs:<listed>,end:<0 or 1>`; 416: `available:<bytes>`; 500: `read:<first>-<last>`; also `not-ready` (503), `bad-range` |
+
+A request still open after 5 s is written again, with its `stage`, every 5 s up to
+six times, and the first time also as a `loop-state` line with `event=request-slow`.
+
+`loop-state` is the listener and the counters: `listener` (`ready`, `waiting`,
+`failed`, `cancelled`, `lost`, `dead`, `stopped`), `port`, `conns`,
+`oldest_conn_ms`, `accepted`, `served`, `aborted`, `pending`, `relistens`,
+`since_accept_ms`, `since_request_ms`, `fds` (open descriptors of the process)
+and `fd_limit`. A line carries `event=` when it reports a change:
+`listener-ready`, `-waiting`, `-failed`, `-cancelled`, `-lost`, `-relisten`,
+`-gave-up`, `-create-failed`, `first-request` (with `client`, the first
+`User-Agent`, to show who connects), `request-slow` and `stopped`.
+
+Reading them after a stall, when the buffer drains and nothing is reported:
+
+1. Find the last `loop-req` before the stall.
+   - None after the last refill: the player asked for nothing more, the server
+     was idle and healthy (`listener=ready`, `pending=0`), and the loader
+     stopped inside AVFoundation.
+   - `status=pending stage=waiting`: the request reached the server and nothing
+     answered it. For a finished run that is a server defect.
+   - `stage=sending`, or `sent=failed:` or `sent=aborted:`: the client stopped
+     reading or left.
+   - `status=500`, `503` or `416`: the server refused it, and `detail` says
+     why. `read:` with `fds` near `fd_limit` means no free file descriptors.
+2. In `loop-state`, a `listener` other than `ready`, or `since_accept_ms`
+   growing while the player is trying, means the player could not connect.
+3. A `first-request client=` that is not AVFoundation's loader names something
+   else on the port.
+
+Log the player side beside them: every range of the item's `loadedTimeRanges`,
+`isPlaybackBufferFull` and `isPlaybackLikelyToKeepUp`, the item's access log and
+error log, `timeControlStatus` with `reasonForWaitingToPlay`, and how many
+`AVPlayerItemVideoOutput` are attached (see Duties left to the app).
 
 ### Duties left to the app
 
