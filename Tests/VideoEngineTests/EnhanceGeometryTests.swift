@@ -54,7 +54,7 @@ struct PictureOrientationTests {
         #expect(PictureOrientation(transform: transform(1, 0, 0.5, 1)) == nil)
         #expect(PictureOrientation(transform: transform(0.7071, 0.7071, -0.7071, 0.7071)) == nil)
         #expect(PictureOrientation(transform: transform(0, 0, 0, 0)) == nil)
-        #expect(PictureOrientation(transform: transform(.nan, 0, 0, 1)) == nil)
+        #expect(PictureOrientation(transform: transform(CGFloat.nan, 0, 0, 1)) == nil)
         #expect(TrackOrientation(transform: transform(2, 0, 0, 2)) != .known(.upright))
     }
 
@@ -161,8 +161,9 @@ struct PictureGeometryTests {
         let past = try #require(make(200, 100, clean: CGRect(x: 150, y: 0, width: 100, height: 100)))
         #expect(past.crop == PixelRect(x: 150, y: 0, width: 50, height: 100))
         // An empty, huge or broken aperture means the whole frame.
-        for clean in [CGRect.zero, CGRect(x: 0, y: 0, width: 1, height: 1), CGRect(x: .nan, y: 0, width: .nan, height: .nan),
-                      CGRect(x: 0, y: 0, width: .infinity, height: 50)] {
+        let notANumber = CGFloat.nan
+        for clean in [CGRect.zero, CGRect(x: 0, y: 0, width: 1, height: 1), CGRect(x: notANumber, y: 0, width: notANumber, height: notANumber),
+                      CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 50)] {
             let whole = try #require(make(200, 100, clean: clean))
             #expect(whole.size == PixelSize(width: 200, height: 100), Comment(rawValue: "\(clean)"))
         }
@@ -179,8 +180,9 @@ struct PictureGeometryTests {
         let flat = try #require(make(720, 480, aspect: 32.0 / 27.0))
         #expect(abs(flat.pixelAspect - 32.0 / 27.0) < 1e-9)
         // A broken pixel shape is a square pixel.
-        for broken in [0.0, -1.0, .nan, .infinity] {
-            #expect(try #require(make(64, 64, aspect: broken)).pixelAspect == 1)
+        for broken in [0.0, -1.0, Double.nan, Double.infinity] {
+            let geometry = try #require(make(64, 64, aspect: broken))
+            #expect(geometry.pixelAspect == 1)
         }
     }
 
