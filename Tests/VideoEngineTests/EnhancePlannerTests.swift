@@ -110,7 +110,7 @@ struct EnhanceMathTests {
 
     @Test func debandGrowsWithStrengthAndPictureScale() {
         #expect(abs(EnhanceMath.debandThreshold(0) - 1.0 / 255) < 1e-7)
-        #expect(abs(EnhanceMath.debandThreshold(1) - 6.0 / 255) < 1e-7)
+        #expect(abs(EnhanceMath.debandThreshold(1) - 12.0 / 255) < 1e-7)
         #expect(EnhanceMath.debandRadius(0, scale: 1) == 4)
         #expect(EnhanceMath.debandRadius(1, scale: 2) == 32)
         // A picture that was not enlarged never shrinks the radius.
