@@ -310,6 +310,26 @@ struct RemuxServingTests {
         #expect(report.contains("loop-state "))
     }
 
+    /// A server that is still running stays in `EngineDiagnostics.report()` however many newer ones start
+    /// and end beside it: the run that is playing must not drop out of a bug report because short runs
+    /// (a prewarm, a seek that replaces the run) began after it.
+    @Test func theReportKeepsARunningServerWhileNewerOnesComeAndGo() async throws {
+        let fixture = try Fixture.url("h264-aac-60s.mkv")
+        let keeper = RemuxSession(sourceFactory: { try FileRangeSource(fileURL: fixture) })
+        defer { keeper.stop() }
+        let port = try #require(try await keeper.start().port)
+        // Five at once, so the list would overflow a count of four while all of them still run.
+        var others: [RemuxSession] = []
+        for _ in 0..<5 {
+            let other = RemuxSession(sourceFactory: { try FileRangeSource(fileURL: fixture) })
+            _ = try await other.start()
+            others.append(other)
+        }
+        for other in others { other.stop() }
+        others.removeAll()
+        #expect(EngineDiagnostics.report().contains(" port=\(port) "))
+    }
+
     /// Segment requests repeated, overlapping and abandoned half way, as a player seeking back and forth
     /// makes them: all that stay are answered with the same bytes, and the server still answers after.
     @Test func aFinishedRunKeepsAnsweringWhileRequestsAreRepeatedAndAbandoned() async throws {

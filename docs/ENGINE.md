@@ -573,7 +573,7 @@ AVPlayer reads a remux run from the loopback server on `127.0.0.1`. When playbac
 stalls with no engine event and no error, the first question is what the player
 last asked for and how the server answered. Both line types go to the
 `EngineLogger` as events and into `report()`: the last 120 written, then, for each
-of the last four servers still running, its `loop-state` line and one `loop-req`
+of the servers still running, its `loop-state` line and one `loop-req`
 line per request still open. `LoopbackServer` takes an optional `log` closure for
 the same events, `diagnosticLines()` returns the live lines, and
 `recentRequests()` the last 16 requests.

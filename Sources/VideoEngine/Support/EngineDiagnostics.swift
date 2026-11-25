@@ -13,7 +13,7 @@ public enum EngineDiagnostics {
     /// The loopback lines have a ring of their own, so a busy player cannot push the `perf-*` lines out.
     private static let loopbackCapacity = 120
     private static let loopbackLines = OSAllocatedUnfairLock(initialState: [String]())
-    /// The most recent loopback servers, newest last. `report()` asks them for their state.
+    /// The loopback servers still running, oldest first. `report()` asks them for their state.
     private static let servers = OSAllocatedUnfairLock(initialState: [WeakServer]())
 
     /// A loopback server held weakly: it ends with its run, not with the report.
@@ -56,12 +56,13 @@ public enum EngineDiagnostics {
         }
     }
 
-    /// Lets `report()` show `server` while it exists. Only the last four servers are kept.
+    /// Lets `report()` show `server` for as long as it runs. Servers that have ended drop out of the
+    /// list; a running one stays however many newer ones start beside it, so the run that is playing
+    /// is always in the report.
     static func track(_ server: LoopbackServer) {
         servers.withLock { servers in
             servers.removeAll { $0.server == nil }
             servers.append(WeakServer(server: server))
-            if servers.count > 4 { servers.removeFirst(servers.count - 4) }
         }
     }
 
