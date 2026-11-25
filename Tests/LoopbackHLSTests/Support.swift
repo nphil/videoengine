@@ -122,17 +122,26 @@ struct HTTPResponse: Sendable {
 enum RawHTTP {
     private struct Connection: @unchecked Sendable { let nw: NWConnection }
 
-    static func get(_ base: URL, _ path: String, range: String? = nil) async throws -> HTTPResponse {
+    static func get(_ base: URL, _ path: String, range: String? = nil, userAgent: String? = nil,
+                    timeout: Double = 120) async throws -> HTTPResponse {
         var request = "GET \(path) HTTP/1.1\r\nHost: 127.0.0.1\r\n"
         if let range { request += "Range: \(range)\r\n" }
+        if let userAgent { request += "User-Agent: \(userAgent)\r\n" }
         request += "\r\n"
         let port = try #require(base.port.flatMap { NWEndpoint.Port(rawValue: UInt16($0)) })
         let nw = NWConnection(host: .ipv4(.loopback), port: port, using: .tcp)
         defer { nw.cancel() }
+        let connection = Connection(nw: nw)
+        // A server that never answers ends the request with an error instead of hanging the test.
+        let limit = Task {
+            try await Task.sleep(for: .seconds(timeout))
+            connection.nw.cancel()
+        }
+        defer { limit.cancel() }
         let raw: Data = try await withCheckedThrowingContinuation { continuation in
             nw.start(queue: .global())
             nw.send(content: Data(request.utf8), completion: .contentProcessed { _ in })
-            receive(Connection(nw: nw), Data(), continuation)
+            receive(connection, Data(), continuation)
         }
         return try parse(raw)
     }
@@ -163,5 +172,141 @@ enum RawHTTP {
                 .trimmingCharacters(in: .whitespaces)
         }
         return HTTPResponse(status: status, headers: headers, body: Data(raw[end.upperBound...]))
+    }
+
+    /// Ways a client leaves a request half done, as a player does when it gives up on one.
+    enum Abuse: CaseIterable, Sendable {
+        /// Connects and says nothing.
+        case silent
+        /// Sends half a request header and no more.
+        case partialHeader
+        /// Sends a whole request and closes without reading the reply.
+        case requestThenClose
+        /// Sends a whole request, reads the first bytes of the reply and closes.
+        case readALittleThenClose
+    }
+
+    static func abuse(_ kind: Abuse, _ base: URL, path: String, range: String, timeout: Double = 30) async throws {
+        let port = try #require(base.port.flatMap { NWEndpoint.Port(rawValue: UInt16($0)) })
+        let connection = Connection(nw: NWConnection(host: .ipv4(.loopback), port: port, using: .tcp))
+        let limit = Task {
+            try await Task.sleep(for: .seconds(timeout))
+            connection.nw.cancel()
+        }
+        defer {
+            limit.cancel()
+            connection.nw.cancel()
+        }
+        try await ready(connection)
+        let request = Data("GET \(path) HTTP/1.1\r\nHost: 127.0.0.1\r\nRange: \(range)\r\n\r\n".utf8)
+        switch kind {
+        case .silent:
+            break
+        case .partialHeader:
+            await send(connection, request.prefix(request.count / 2))
+        case .requestThenClose:
+            await send(connection, request)
+        case .readALittleThenClose:
+            await send(connection, request)
+            await receiveSome(connection)
+        }
+    }
+
+    private static func ready(_ connection: Connection) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let decided = OSAllocatedUnfairLock(initialState: false)
+            connection.nw.stateUpdateHandler = { state in
+                var outcome: Result<Void, Error>?
+                switch state {
+                case .ready: outcome = .success(())
+                case .failed(let error): outcome = .failure(error)
+                case .cancelled: outcome = .failure(CancellationError())
+                default: break
+                }
+                guard let outcome else { return }
+                let first = decided.withLock { decided in
+                    let was = decided
+                    decided = true
+                    return !was
+                }
+                if first { continuation.resume(with: outcome) }
+            }
+            connection.nw.start(queue: .global())
+        }
+    }
+
+    private static func send(_ connection: Connection, _ data: Data) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            connection.nw.send(content: data, completion: .contentProcessed { _ in continuation.resume() })
+        }
+    }
+
+    private static func receiveSome(_ connection: Connection) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            connection.nw.receive(minimumIncompleteLength: 1, maximumLength: 100) { _, _, _, _ in continuation.resume() }
+        }
+    }
+}
+
+/// Polls until `condition` holds, for up to `seconds`; returns whether it did.
+func eventually(_ seconds: Double = 30, _ condition: () -> Bool) async throws -> Bool {
+    let deadline = ContinuousClock.now + .seconds(seconds)
+    while ContinuousClock.now < deadline {
+        if condition() { return true }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    return condition()
+}
+
+/// The lines a server hands its `log` closure, spelled as the engine's log spells them.
+final class LogCapture: Sendable {
+    private let store = OSAllocatedUnfairLock(initialState: [String]())
+
+    var sink: @Sendable (String, [(String, String)]) -> Void {
+        let store = self.store
+        return { tag, fields in
+            let line = ([tag] + fields.map { "\($0.0)=\($0.1)" }).joined(separator: " ")
+            store.withLock { $0.append(line) }
+        }
+    }
+
+    var lines: [String] { store.withLock { $0 } }
+
+    /// The lines of one tag, such as `loop-req`.
+    func lines(tagged tag: String) -> [String] { lines.filter { $0.hasPrefix(tag + " ") } }
+}
+
+extension String {
+    /// The value after `key=` in a log line, or nil when the line has no such field.
+    func field(_ key: String) -> String? {
+        split(separator: " ").first { $0.hasPrefix(key + "=") }.map { String($0.dropFirst(key.count + 1)) }
+    }
+
+    /// `field(_:)` as a number.
+    func number(_ key: String) -> Int? {
+        field(key).flatMap { Int($0) }
+    }
+}
+
+/// Numbers that look random and repeat: a failing run can be run again.
+struct Dice {
+    private var state: UInt64
+
+    init(seed: UInt64) { state = seed }
+
+    mutating func roll(_ bound: Int) -> Int {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return Int((state >> 33) % UInt64(bound))
+    }
+}
+
+enum Pattern {
+    /// Bytes whose value depends on the position, so a block read from the wrong place shows.
+    static func bytes(_ count: Int) -> Data {
+        var data = Data(count: count)
+        data.withUnsafeMutableBytes { raw in
+            for index in 0..<raw.count { raw[index] = UInt8(truncatingIfNeeded: index ^ (index >> 8) ^ (index >> 16)) }
+        }
+        return data
     }
 }
