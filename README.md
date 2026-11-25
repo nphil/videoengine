@@ -123,8 +123,8 @@ concurrency):
   aside by itself for HDR, Low Power Mode, heat or dropped frames, and the plain
   picture shows. Design informed by AetherEngine's documented upscaling feature;
   no code taken.
-- `PictureEnhancer` v3.1.0+ (additive, each off by default): `EnhanceOptions.denoise`
-  (temporal noise reduction with an edge-preserving spatial step, motion-adaptive so
+- `PictureEnhancer` v3.1.0+ (additive, each off by default): `EnhanceOptions.noiseReduction`
+  (Noise Reduction: temporal, with an edge-preserving spatial step, motion-adaptive so
   no ghosts), `.deblock` (softens small steps across block edges before any
   scaler) and `.vivid` (an SDR tone boost for OLED with skin-tone and highlight
   protection), all 0...1 and live-changeable; and a rule for pictures of 720p class

@@ -756,31 +756,31 @@ struct EnhanceOptionsFlowTests {
 struct EnhanceEffectOptionsTests {
     @Test func theNewStagesStartOffAndAreClamped() {
         let options = EnhanceOptions()
-        #expect(options.denoise == 0 && options.deblock == 0 && options.vivid == 0)
-        var changed = EnhanceOptions(upscaler: .automatic, denoise: 4, deblock: -1, vivid: 0.5)
-        #expect(changed.denoise == 1 && changed.deblock == 0 && changed.vivid == 0.5)
-        changed.denoise = .nan
+        #expect(options.noiseReduction == 0 && options.deblock == 0 && options.vivid == 0)
+        var changed = EnhanceOptions(upscaler: .automatic, noiseReduction: 4, deblock: -1, vivid: 0.5)
+        #expect(changed.noiseReduction == 1 && changed.deblock == 0 && changed.vivid == 0.5)
+        changed.noiseReduction = .nan
         changed.vivid = -3
         changed.deblock = 7
-        #expect(changed.denoise == 0 && changed.vivid == 0 && changed.deblock == 1)
+        #expect(changed.noiseReduction == 0 && changed.vivid == 0 && changed.deblock == 1)
     }
 
     @Test func eachNewStageAloneTurnsTheChainOn() {
-        #expect(EnhanceOptions(denoise: 0.1).isEnabled)
+        #expect(EnhanceOptions(noiseReduction: 0.1).isEnabled)
         #expect(EnhanceOptions(deblock: 0.1).isEnabled)
         #expect(EnhanceOptions(vivid: 0.1).isEnabled)
-        #expect(!EnhanceOptions(denoise: 0, deblock: 0, vivid: 0).isEnabled)
+        #expect(!EnhanceOptions(noiseReduction: 0, deblock: 0, vivid: 0).isEnabled)
     }
 
     @Test func theLabelledInitKeepsTheOldCallsWorking() {
         let old = EnhanceOptions(upscaler: .lineArt, sharpen: 0.2, deband: 0.3)
-        #expect(old.denoise == 0 && old.deblock == 0 && old.vivid == 0)
+        #expect(old.noiseReduction == 0 && old.deblock == 0 && old.vivid == 0)
     }
 
     @Test func strengthChangesOfTheNewStagesAreTuningAndCoalesce() {
-        let base = EnhanceOptions(upscaler: .automatic, sharpen: 0.3, denoise: 0.2, deblock: 0.2, vivid: 0.2)
+        let base = EnhanceOptions(upscaler: .automatic, sharpen: 0.3, noiseReduction: 0.2, deblock: 0.2, vivid: 0.2)
         for edit in [
-            { (o: inout EnhanceOptions) in o.denoise = 0.6 }, { (o: inout EnhanceOptions) in o.deblock = 0.6 },
+            { (o: inout EnhanceOptions) in o.noiseReduction = 0.6 }, { (o: inout EnhanceOptions) in o.deblock = 0.6 },
             { (o: inout EnhanceOptions) in o.vivid = 0.6 },
         ] {
             var changed = base
@@ -795,7 +795,7 @@ struct EnhanceEffectOptionsTests {
         second.vivid = 0.4
         #expect(coalescer.request(second, current: first, now: 10.02) == nil)
         var third = second
-        third.denoise = 0.9
+        third.noiseReduction = 0.9
         #expect(coalescer.request(third, current: first, now: 10.04) == nil)
         #expect(coalescer.pending == third)
         #expect(coalescer.due(current: first, now: 10.2) == third)
@@ -803,19 +803,19 @@ struct EnhanceEffectOptionsTests {
 
     @Test func thePlanCarriesTheNewStrengthsAndCountsItsExtraPasses() {
         var plan = EnhancePlan(upscaler: nil, sourceWidth: 640, sourceHeight: 360, outputWidth: 640, outputHeight: 360, sharpen: 0, deband: 0)
-        #expect(plan.denoise == 0 && plan.deblock == 0 && plan.vivid == 0)
+        #expect(plan.noiseReduction == 0 && plan.deblock == 0 && plan.vivid == 0)
         #expect(plan.extraPasses == 0)
         plan.deblock = 1
         plan.vivid = 1
         #expect(plan.extraPasses == 0)
-        plan.denoise = 0.5
+        plan.noiseReduction = 0.5
         #expect(plan.extraPasses == 1)
     }
 
     @Test func theNewStagesAloneRunAtTheSourceSize() {
         let source = SourcePicture(size: PixelSize(width: 1280, height: 720))
         let context = EnhanceContext(
-            options: EnhanceOptions(denoise: 0.5, deblock: 0.25, vivid: 0.75), source: source,
+            options: EnhanceOptions(noiseReduction: 0.5, deblock: 0.25, vivid: 0.75), source: source,
             target: PixelSize(width: 2556, height: 1179), statuses: [:]
         )
         guard case .run(let plan) = EnhanceMath.decide(context) else {
@@ -823,7 +823,7 @@ struct EnhanceEffectOptionsTests {
             return
         }
         #expect(plan.upscaler == nil && plan.outputWidth == 1280 && plan.outputHeight == 720)
-        #expect(plan.denoise == 0.5 && plan.deblock == 0.25 && plan.vivid == 0.75)
+        #expect(plan.noiseReduction == 0.5 && plan.deblock == 0.25 && plan.vivid == 0.75)
         #expect(plan.sharpen == 0 && plan.deband == 0)
     }
 

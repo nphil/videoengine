@@ -364,13 +364,13 @@ extension EnhanceMath {
         if options.upscaler != .off, fitScale(source: source, target: context.target) >= minimumUpscaleRatio {
             scaler = EnhanceLadder.active(EnhanceLadder.rungs(for: options.upscaler), statuses: context.statuses, ceiling: context.ceiling)
         }
-        let perPixel = options.sharpen > 0 || options.deband > 0 || options.denoise > 0 || options.deblock > 0 || options.vivid > 0
+        let perPixel = options.sharpen > 0 || options.deband > 0 || options.noiseReduction > 0 || options.deblock > 0 || options.vivid > 0
         guard scaler != nil || perPixel else { return .idle }
         let output = scaler?.output ?? source.size
         return .run(EnhancePlan(
             upscaler: scaler?.kind, sourceWidth: source.size.width, sourceHeight: source.size.height,
             outputWidth: output.width, outputHeight: output.height, sharpen: options.sharpen, deband: options.deband,
-            denoise: options.denoise, deblock: options.deblock, vivid: options.vivid
+            noiseReduction: options.noiseReduction, deblock: options.deblock, vivid: options.vivid
         ))
     }
 }

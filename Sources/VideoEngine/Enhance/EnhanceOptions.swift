@@ -22,7 +22,7 @@ public struct EnhanceOptions: Sendable, Equatable {
     public var deband: Double { didSet { deband = Self.unit(deband) } }
     /// Noise and grain reduction (v3.1.0+): 0 is off, 1 is strongest. Temporal and motion-adaptive: still areas are
     /// averaged over the last frames, moving areas keep the current frame, so nothing ghosts. Values outside 0...1 are clamped.
-    public var denoise: Double { didSet { denoise = Self.unit(denoise) } }
+    public var noiseReduction: Double { didSet { noiseReduction = Self.unit(noiseReduction) } }
     /// Compression block-artifact removal (v3.1.0+): 0 is off, 1 is strongest. Softens the small steps at the edges of
     /// the video's 8x8 blocks, on the picture as it was coded, before any scaling. Values outside 0...1 are clamped.
     public var deblock: Double { didSet { deblock = Self.unit(deblock) } }
@@ -31,13 +31,13 @@ public struct EnhanceOptions: Sendable, Equatable {
     public var vivid: Double { didSet { vivid = Self.unit(vivid) } }
 
     public init(
-        upscaler: Upscaler = .off, sharpen: Double = 0, deband: Double = 0, denoise: Double = 0, deblock: Double = 0,
+        upscaler: Upscaler = .off, sharpen: Double = 0, deband: Double = 0, noiseReduction: Double = 0, deblock: Double = 0,
         vivid: Double = 0
     ) {
         self.upscaler = upscaler
         self.sharpen = Self.unit(sharpen)
         self.deband = Self.unit(deband)
-        self.denoise = Self.unit(denoise)
+        self.noiseReduction = Self.unit(noiseReduction)
         self.deblock = Self.unit(deblock)
         self.vivid = Self.unit(vivid)
     }
@@ -46,7 +46,7 @@ public struct EnhanceOptions: Sendable, Equatable {
     public static let off = EnhanceOptions()
 
     /// At least one stage is on.
-    public var isEnabled: Bool { upscaler != .off || sharpen > 0 || deband > 0 || denoise > 0 || deblock > 0 || vivid > 0 }
+    public var isEnabled: Bool { upscaler != .off || sharpen > 0 || deband > 0 || noiseReduction > 0 || deblock > 0 || vivid > 0 }
 
     private static func unit(_ value: Double) -> Double {
         value.isNaN ? 0 : min(1, max(0, value))
@@ -89,13 +89,13 @@ public struct EnhancePlan: Sendable, Equatable {
     public var outputHeight: Int
     public var sharpen: Double
     public var deband: Double
-    public var denoise = 0.0
+    public var noiseReduction = 0.0
     public var deblock = 0.0
     public var vivid = 0.0
 
     /// GPU passes this plan adds to the ones every plan has (the NV12 to BGRA pass, any scaler, the final compose):
-    /// denoise is one more pass, at the output size. Deblock rides on the first pass, vivid on the last.
-    public var extraPasses: Int { denoise > 0 ? 1 : 0 }
+    /// noiseReduction is one more pass, at the output size. Deblock rides on the first pass, vivid on the last.
+    public var extraPasses: Int { noiseReduction > 0 ? 1 : 0 }
 }
 
 /// Why the chain stepped aside and the plain picture shows. The chain comes back by itself.

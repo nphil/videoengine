@@ -201,7 +201,7 @@ public final class PictureEnhancer {
     public let layer: AVSampleBufferDisplayLayer
 
     /// What to do to the picture. Change it at any time; the chain follows within a frame or two. A slider dragged in
-    /// small steps is fine: strength changes (sharpen, deband, denoise, deblock, vivid) that come faster than ten a
+    /// small steps is fine: strength changes (sharpen, deband, noiseReduction, deblock, vivid) that come faster than ten a
     /// second are held back and only the newest is applied, and no strength change rebuilds the scaler. Reading it gives the newest value set.
     public var options: EnhanceOptions {
         get { requested }
@@ -690,7 +690,7 @@ public final class PictureEnhancer {
             return
         }
         var denoiser: DenoiseHistory?
-        if plan.denoise > 0 {
+        if plan.noiseReduction > 0 {
             denoiser = ensureDenoiseHistory(for: plan, gpu: gpu)
             if denoiser == nil {
                 fail("no memory for the denoiser's textures", rung: nil)
@@ -743,7 +743,7 @@ public final class PictureEnhancer {
             if let denoiser {
                 let step = denoiser.next(epoch: epoch, time: seconds)
                 try gpu.denoise(
-                    DenoiseParameters(strength: plan.denoise, remembers: step.remembers), input: composeInput,
+                    DenoiseParameters(strength: plan.noiseReduction, remembers: step.remembers), input: composeInput,
                     previous: step.previous, output: step.output, commands: commands
                 )
                 composeInput = step.output
@@ -780,7 +780,7 @@ public final class PictureEnhancer {
             debandRadius: EnhanceMath.debandRadius(plan.deband, scale: scale),
             debandThreshold: EnhanceMath.debandThreshold(plan.deband), frame: frameCounter,
             vivid: Float(plan.vivid), vividRadius: EnhanceMath.vividRadius(outputHeight: plan.outputHeight),
-            dither: EnhanceMath.ditherCodes(deband: plan.deband, denoise: plan.denoise, vivid: plan.vivid)
+            dither: EnhanceMath.ditherCodes(deband: plan.deband, denoise: plan.noiseReduction, vivid: plan.vivid)
         )
     }
 
@@ -1054,7 +1054,7 @@ public final class PictureEnhancer {
             fields = [
                 ("state", "running"), ("scaler", plan.upscaler?.rawValue ?? "none"),
                 ("source", "\(plan.sourceWidth)x\(plan.sourceHeight)"), ("out", "\(plan.outputWidth)x\(plan.outputHeight)"),
-                ("sharpen", String(plan.sharpen)), ("deband", String(plan.deband)), ("denoise", String(plan.denoise)),
+                ("sharpen", String(plan.sharpen)), ("deband", String(plan.deband)), ("noiseReduction", String(plan.noiseReduction)),
                 ("deblock", String(plan.deblock)), ("vivid", String(plan.vivid)), ("extra-passes", String(plan.extraPasses)),
             ]
         case .paused(let reason):
