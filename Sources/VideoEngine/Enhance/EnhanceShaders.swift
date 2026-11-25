@@ -278,8 +278,13 @@ enum EnhanceShaders {
             float3 low = min(min(up, down), min(min(left, right), colour));
             float3 high = max(max(up, down), max(max(left, right), colour));
             float3 room = saturate(min(low, 1.0 - high) / max(high, float3(0.0001)));
-            float3 weight = -sqrt(room) * (0.05 + 0.15 * p.sharpen);
-            colour = (colour + (up + down + left + right) * weight) / (1.0 + 4.0 * weight);
+            // The strongest weight the kernel is stable at, then pushed past it: 0.5 on the slider is the full
+            // contrast-adaptive result and 1.0 doubles its change. Kept within a little of the neighbourhood's own
+            // range, so the push shows as crisper edges, not as halos.
+            float3 weight = -sqrt(room) * 0.2;
+            float3 sharp = (colour + (up + down + left + right) * weight) / (1.0 + 4.0 * weight);
+            float3 span = (high - low) * 0.25;
+            colour = clamp(colour + (sharp - colour) * (2.0 * p.sharpen), low - span, high + span);
         }
 
         if (p.deband > 0.0) {

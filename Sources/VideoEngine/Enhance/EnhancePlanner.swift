@@ -121,7 +121,7 @@ enum EnhanceMath {
 
     /// The most a pixel may differ from the average of its neighbours and still be smoothed, as a fraction of full scale.
     static func debandThreshold(_ strength: Double) -> Float {
-        Float((1 + 5 * strength) / 255)
+        Float((1 + 11 * strength) / 255)
     }
 
     /// How far the deband pass looks, in output pixels: wider for stronger smoothing, and scaled with the picture.

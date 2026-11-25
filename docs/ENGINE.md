@@ -482,6 +482,9 @@ API (`PictureEnhancer` is `@MainActor`):
   `not needed`, then `chosen=`), `enhance-plan` (every state change), `enhance-perf` (every 120 frames: shown, late,
   skipped and failed frames, GPU time average and maximum), `enhance-demote` (from which scaler to which, and why),
   `enhance-pause`, `enhance-resume` and `enhance-error`.
+- Strength scale (v3.0.3+): `sharpen` 0.5 is the full contrast-adaptive result and 1.0 doubles its change, held
+  near the neighbourhood's own range so it does not ring; `deband` smooths steps of up to 1 + 11 x strength codes
+  (12 of 255 at 1.0). Both were too faint to see at 1080p in 3.0.2 (measured on iPhone 17 Pro).
 - Changing `options` while playing: a slider dragged in steps is fine. Strength (sharpen, deband) changes that come
   faster than ten a second are held back and only the newest applies, within a tenth of a second; a change of strength
   never rebuilds the scaler or restarts the ladder, and the governor keeps its record. Only a different `upscaler`, or
