@@ -90,7 +90,9 @@ public enum EnhanceUnavailableReason: String, Sendable, Equatable {
     case highDynamicRange
     /// No usable GPU, or its shaders would not compile.
     case noGPU
-    /// The frames are in a form the chain does not handle: an unsupported pixel format or a cropped picture.
+    /// The frames are in a form the chain cannot draw: not 8-bit 4:2:0, a track transform that is not a quarter turn or a
+    /// mirror, a turn the track does not explain, or a frame smaller than 2x2. A crop, a turn, an odd size and a
+    /// non-square pixel are handled, not refused.
     case unsupportedPicture
 
     /// A plain-English sentence for a settings screen.

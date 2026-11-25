@@ -4,7 +4,10 @@
 // those techniques. Every read goes through `read()` with explicit clamping, so no sampler state is involved.
 //
 // The kernels, in the order the chain runs them:
-//   ingest_nv12         video-range or full-range NV12 -> BGRA, with the video's own matrix
+//   ingest_nv12         video-range or full-range NV12 -> BGRA, with the video's own matrix, cropping to the clean
+//                       aperture and turning the frame upright on the way
+//   reorient_luma       the same crop and turn for a luma plane that stays 4:2:0, for scalers that take 420v
+//   reorient_chroma     the same for the chroma plane
 //   lanczos_horizontal  first half of the separable Lanczos-3 scale (rgba16Float in the middle)
 //   lanczos_vertical    second half
 //   line_art_steepen    pulls the pixels beside a line toward the side they belong to
@@ -61,19 +64,39 @@ enum EnhanceShaders {
         float kb;
     };
 
+    // Where the shown picture is in the coded frame and how it is turned. The output texture is the upright picture:
+    // an output pixel is mirrored if asked, the two axes are swapped if asked, and the crop's corner is added.
+    struct Geometry {
+        int cropX;
+        int cropY;
+        int swapAxes;
+        int flipAcross;
+        int flipDown;
+    };
+
+    inline int2 coded_pixel(int2 upright, int2 size, constant Geometry& g) {
+        int across = g.flipAcross != 0 ? size.x - 1 - upright.x : upright.x;
+        int down = g.flipDown != 0 ? size.y - 1 - upright.y : upright.y;
+        int2 turned = g.swapAxes != 0 ? int2(down, across) : int2(across, down);
+        return turned + int2(g.cropX, g.cropY);
+    }
+
     kernel void ingest_nv12(
         texture2d<float, access::read> luma [[texture(0)]],
         texture2d<float, access::read> chroma [[texture(1)]],
         texture2d<float, access::write> output [[texture(2)]],
         constant IngestParams& p [[buffer(0)]],
+        constant Geometry& g [[buffer(1)]],
         uint2 gid [[thread_position_in_grid]])
     {
         int2 size = int2(output.get_width(), output.get_height());
         if (int(gid.x) >= size.x || int(gid.y) >= size.y) { return; }
         int2 last = int2(chroma.get_width(), chroma.get_height()) - 1;
+        int2 lumaLast = int2(luma.get_width(), luma.get_height()) - 1;
+        int2 pixel = coded_pixel(int2(gid), size, g);
 
         // 4:2:0 chroma sits on the even columns and halfway between the even and odd rows, as H.264 and HEVC code it.
-        float2 at = float2(float(gid.x) * 0.5, (float(gid.y) - 0.5) * 0.5);
+        float2 at = float2(float(pixel.x) * 0.5, (float(pixel.y) - 0.5) * 0.5);
         int2 base = int2(floor(at));
         float2 blend = at - float2(base);
         float2 c00 = chroma.read(uint2(clamp(base, int2(0), last))).rg;
@@ -82,13 +105,41 @@ enum EnhanceShaders {
         float2 c11 = chroma.read(uint2(clamp(base + int2(1, 1), int2(0), last))).rg;
         float2 cbcr = mix(mix(c00, c10, blend.x), mix(c01, c11, blend.x), blend.y);
 
-        float y = (luma.read(gid).r - p.yOffset) * p.yScale;
+        float y = (luma.read(uint2(clamp(pixel, int2(0), lumaLast))).r - p.yOffset) * p.yScale;
         float cb = (cbcr.x - p.cOffset) * p.cScale;
         float cr = (cbcr.y - p.cOffset) * p.cScale;
         float r = y + 2.0 * (1.0 - p.kr) * cr;
         float b = y + 2.0 * (1.0 - p.kb) * cb;
-        float g = (y - p.kr * r - p.kb * b) / (1.0 - p.kr - p.kb);
-        output.write(float4(saturate(float3(r, g, b)), 1.0), gid);
+        float g2 = (y - p.kr * r - p.kb * b) / (1.0 - p.kr - p.kb);
+        output.write(float4(saturate(float3(r, g2, b)), 1.0), gid);
+    }
+
+    kernel void reorient_luma(
+        texture2d<float, access::read> input [[texture(0)]],
+        texture2d<float, access::write> output [[texture(1)]],
+        constant Geometry& g [[buffer(0)]],
+        uint2 gid [[thread_position_in_grid]])
+    {
+        int2 size = int2(output.get_width(), output.get_height());
+        if (int(gid.x) >= size.x || int(gid.y) >= size.y) { return; }
+        int2 last = int2(input.get_width(), input.get_height()) - 1;
+        int2 pixel = coded_pixel(int2(gid), size, g);
+        output.write(input.read(uint2(clamp(pixel, int2(0), last))), gid);
+    }
+
+    // One chroma sample belongs to a 2x2 block of luma pixels. The crop's corner and the output's size are even, so
+    // the block of the output's top left pixel falls inside one block of the coded frame whichever way it is turned.
+    kernel void reorient_chroma(
+        texture2d<float, access::read> input [[texture(0)]],
+        texture2d<float, access::write> output [[texture(1)]],
+        constant Geometry& g [[buffer(0)]],
+        uint2 gid [[thread_position_in_grid]])
+    {
+        int2 chromaSize = int2(output.get_width(), output.get_height());
+        if (int(gid.x) >= chromaSize.x || int(gid.y) >= chromaSize.y) { return; }
+        int2 last = int2(input.get_width(), input.get_height()) - 1;
+        int2 pixel = coded_pixel(int2(gid) * 2, chromaSize * 2, g);
+        output.write(input.read(uint2(clamp(pixel >> 1, int2(0), last))), gid);
     }
 
     kernel void lanczos_horizontal(

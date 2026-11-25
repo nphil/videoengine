@@ -18,8 +18,11 @@ struct FrameFacts {
     var picture: SourcePicture
     var matrix: YCbCrMatrix
     var fullRange: Bool
+    /// The window of the frame that is shown and how it is turned; nil when the picture is refused.
+    var geometry: PictureGeometry?
 
-    init(buffer: CVPixelBuffer, presentationSize: CGSize) {
+    /// `track` is how the video track says the frames are shown; frames of an unknown or upright track are taken as they are.
+    init(buffer: CVPixelBuffer, presentationSize: CGSize, track: TrackOrientation = .known(.upright)) {
         let size = PixelSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
         let format = CVPixelBufferGetPixelFormatType(buffer)
         let videoRange = format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
@@ -41,25 +44,39 @@ struct FrameFacts {
             matrix = YCbCrMatrix.assumed(for: size)
         }
         let aspect = Self.pixelAspect(buffer)
-        // A buffer that is a window onto a larger one, or a clip the player turns on its side, is not drawn right here.
-        let clean = CVImageBufferGetCleanRect(buffer)
-        let cropped = abs(clean.width - CGFloat(size.width)) > 1 || abs(clean.height - CGFloat(size.height)) > 1
-        var rotated = false
-        if presentationSize.width > 0, presentationSize.height > 0 {
-            let shownWide = presentationSize.width >= presentationSize.height
-            let codedWide = Double(size.width) * aspect >= Double(size.height)
-            let longer = max(presentationSize.width, presentationSize.height)
-            let nearSquare = abs(presentationSize.width - presentationSize.height) < 0.02 * longer
-            rotated = shownWide != codedWide && !nearSquare
+        // A crop (the clean aperture), a turn (the track's transform), an odd size and a non-square pixel are all handled
+        // by the geometry; what cannot be drawn is refused here, with the reason.
+        var refusal: String?
+        if !(videoRange || full) { refusal = "its frames are not 8-bit 4:2:0" }
+        var orientation = PictureOrientation.upright
+        let turned = Self.framesTurned(coded: size, pixelAspect: aspect, shown: presentationSize)
+        switch OrientationVerdict.resolve(track: track, framesTurned: turned) {
+        case .use(let turn): orientation = turn
+        case .refuse(let reason): refusal = refusal ?? reason
         }
-        let supported = videoRange || full
-        var picture = SourcePicture(size: size)
-        picture.pixelAspect = aspect
+        let geometry = PictureGeometry.make(
+            coded: size, clean: CVImageBufferGetCleanRect(buffer), pixelAspect: aspect, orientation: orientation
+        )
+        if geometry == nil { refusal = refusal ?? "its frames are smaller than 2x2 pixels" }
+        var picture = SourcePicture(size: geometry?.size ?? size)
+        picture.pixelAspect = geometry?.pixelAspect ?? aspect
         picture.range = pq || hlg || wide ? .hdr : .sdr
-        picture.cropped = cropped || rotated || !supported
+        picture.refusal = refusal
         self.picture = picture
         self.matrix = matrix
         self.fullRange = full
+        self.geometry = geometry
+    }
+
+    /// Whether the player shows the frame with its sides the other way round from how it is coded, which says the player
+    /// turns it by a quarter turn. Nil when that cannot be told: no shown size yet, or a nearly square picture.
+    static func framesTurned(coded: PixelSize, pixelAspect: Double, shown: CGSize) -> Bool? {
+        guard shown.width > 0, shown.height > 0 else { return nil }
+        let longer = max(shown.width, shown.height)
+        guard abs(shown.width - shown.height) >= 0.02 * longer else { return nil }
+        let shownWide = shown.width >= shown.height
+        let codedWide = Double(coded.width) * pixelAspect >= Double(coded.height)
+        return shownWide != codedWide
     }
 
     private static func attachment(_ buffer: CVPixelBuffer, _ key: CFString) -> String? {
@@ -244,6 +261,11 @@ public final class PictureEnhancer {
     private var flushTask: Task<Void, Never>?
     /// The last `enhance-rungs` line, so the same explanation is not written twice.
     private var lastRungLine = ""
+    /// How the video track says its frames are shown (turned, mirrored), read from the asset when an item is attached.
+    /// Frames are not drawn until it is known.
+    private var trackOrientation = TrackOrientation.loading
+    /// The last picture description and refusal that were logged, so a steady picture is written once.
+    private var lastPictureLine = ""
 
     /// Frames from before a change that makes them wrong (a seek, a new item, stepping aside) are dropped, not shown.
     private var epoch = 0
@@ -300,6 +322,7 @@ public final class PictureEnhancer {
     public func attach(to item: AVPlayerItem) {
         detach()
         self.item = item
+        loadTrackOrientation(of: item)
         startLink()
         ensureGPU()
         evaluate()
@@ -310,6 +333,8 @@ public final class PictureEnhancer {
         removeOutput()
         stopLink()
         item = nil
+        trackOrientation = .loading
+        lastPictureLine = ""
         resetSource()
         hideOutput()
         if let gpu { CVMetalTextureCacheFlush(gpu.cache, 0) }
@@ -563,7 +588,10 @@ public final class PictureEnhancer {
 
     /// What the chain does with one frame from the player: learn what the picture is, decide, and draw it.
     func handle(_ frame: PulledFrame, tickTime: CFTimeInterval, deadline: CFTimeInterval) {
-        let facts = FrameFacts(buffer: frame.buffer, presentationSize: item?.presentationSize ?? .zero)
+        // The track's orientation is read once per item, in a moment; until it is known the frames cannot be drawn upright.
+        guard trackOrientation != .loading else { return }
+        let facts = FrameFacts(buffer: frame.buffer, presentationSize: item?.presentationSize ?? .zero, track: trackOrientation)
+        logPicture(facts)
         if source?.size != facts.picture.size {
             invalidateRungs()
             epoch += 1
@@ -572,6 +600,55 @@ public final class PictureEnhancer {
         noteTime(frame.time)
         guard case .run(let plan) = evaluate() else { return }
         render(frame, facts: facts, plan: plan, deadline: deadline)
+    }
+
+    /// Reads how the video track is turned, off the main thread's critical path: the asset loads it when it can. A track
+    /// that cannot be read is taken as upright; the player's own shown size still catches a clip it turns.
+    private func loadTrackOrientation(of item: AVPlayerItem) {
+        trackOrientation = .loading
+        Task { [weak self] in
+            var found = TrackOrientation.known(.upright)
+            do {
+                if let track = try await item.asset.loadTracks(withMediaType: .video).first {
+                    found = TrackOrientation(transform: try await track.load(.preferredTransform))
+                }
+            } catch {
+                found = .known(.upright)
+            }
+            guard let self, self.item === item, self.trackOrientation == .loading else { return }
+            self.setTrackOrientation(found)
+        }
+    }
+
+    /// Takes the track's orientation as read; the picture is learned afresh from the next frame.
+    func setTrackOrientation(_ orientation: TrackOrientation) {
+        guard orientation != trackOrientation else { return }
+        trackOrientation = orientation
+        source = nil
+        invalidateRungs()
+        epoch += 1
+        evaluate()
+    }
+
+    /// Says what the chain makes of the picture (its size, crop, turn and pixel shape), or why it cannot draw it.
+    private func logPicture(_ facts: FrameFacts) {
+        var fields: [(String, String)]
+        if let reason = facts.picture.refusal {
+            fields = [("result", "unsupported"), ("reason", reason)]
+        } else if let geometry = facts.geometry {
+            fields = [("result", "ok"), ("coded", geometry.coded.description), ("shown", geometry.size.description)]
+            if geometry.crop.width != geometry.coded.width || geometry.crop.height != geometry.coded.height {
+                fields.append(("crop", "\(geometry.crop.width)x\(geometry.crop.height)+\(geometry.crop.x)+\(geometry.crop.y)"))
+            }
+            fields.append(("turn", geometry.orientation.description))
+            if abs(geometry.pixelAspect - 1) > 0.001 { fields.append(("pixel-aspect", String(format: "%.3f", geometry.pixelAspect))) }
+        } else {
+            return
+        }
+        let line = fields.map { "\($0.0)=\($0.1)" }.joined(separator: " ")
+        guard line != lastPictureLine else { return }
+        lastPictureLine = line
+        logger.measurement("enhance-picture", fields)
     }
 
     /// A jump in the video's time is a seek: frames still on their way belong to the old position.
@@ -634,20 +711,26 @@ public final class PictureEnhancer {
         }
         let time = frame.time.isValid ? frame.time : CMTime(value: Int64(sequence), timescale: 60)
         do {
-            let player = PlayerPicture(luma: luma.texture, chroma: chroma.texture, matrix: facts.matrix, fullRange: facts.fullRange)
+            let geometry = facts.geometry.map(IngestGeometry.init) ?? .identity
+            let player = PlayerPicture(
+                luma: luma.texture, chroma: chroma.texture, matrix: facts.matrix, fullRange: facts.fullRange, geometry: geometry
+            )
             var composeInput = sourceSurface.texture
             if let rung, let scaledSurface {
                 let rungFrame = RungFrame(gpu: gpu, player: player, source: sourceSurface, scaled: scaledSurface, time: time, sequence: sequence)
                 composeInput = try rung.encode(rungFrame, into: commands)
             } else {
-                try gpu.ingest(player.coefficients, luma: player.luma, chroma: player.chroma, output: sourceSurface.texture, commands: commands)
+                try gpu.ingest(
+                    player.coefficients, geometry: geometry, luma: player.luma, chroma: player.chroma, output: sourceSurface.texture,
+                    commands: commands
+                )
             }
             try gpu.compose(composeParameters(for: plan), input: composeInput, output: display.texture, commands: commands)
         } catch {
             fail("\(error)", rung: plan.upscaler)
             return
         }
-        Self.copyTags(from: frame.buffer, to: displayBuffer)
+        Self.copyTags(from: frame.buffer, to: displayBuffer, swapsAxes: facts.geometry?.orientation.swapsAxes ?? false)
         let lease = FrameLease(display: displayBuffer, epoch: epoch, deadline: deadline, rank: rank, kind: plan.upscaler)
         lease.keep = [frame.readOnly as Any, frame.buffer, luma.holder, chroma.holder, display, sourceSurface, scaledSurface as Any, rung as Any]
         commands.addCompletedHandler { [weak self] finishedCommands in
@@ -695,13 +778,25 @@ public final class PictureEnhancer {
 
     /// The display layer reads colour from the buffer's tags: carry the primaries, the transfer function and the pixel
     /// shape over from the player's frame. The YCbCr matrix stays behind, because the ingest has turned it into RGB.
-    private static func copyTags(from source: CVPixelBuffer, to target: CVPixelBuffer) {
-        let keys = [kCVImageBufferColorPrimariesKey, kCVImageBufferTransferFunctionKey, kCVImageBufferPixelAspectRatioKey]
-        for key in keys {
+    /// A picture turned by a quarter turn has its pixel shape turned with it.
+    private static func copyTags(from source: CVPixelBuffer, to target: CVPixelBuffer, swapsAxes: Bool) {
+        for key in [kCVImageBufferColorPrimariesKey, kCVImageBufferTransferFunctionKey] {
             if let value = CVBufferCopyAttachment(source, key, nil) {
                 CVBufferSetAttachment(target, key, value, .shouldPropagate)
             }
         }
+        guard let shape = CVBufferCopyAttachment(source, kCVImageBufferPixelAspectRatioKey, nil) else { return }
+        var carried: CFTypeRef = shape
+        if swapsAxes, let dictionary = shape as? [String: Any],
+           let horizontal = dictionary[kCVImageBufferPixelAspectRatioHorizontalSpacingKey as String],
+           let vertical = dictionary[kCVImageBufferPixelAspectRatioVerticalSpacingKey as String] {
+            let turned: [String: Any] = [
+                kCVImageBufferPixelAspectRatioHorizontalSpacingKey as String: vertical,
+                kCVImageBufferPixelAspectRatioVerticalSpacingKey as String: horizontal,
+            ]
+            carried = turned as CFDictionary
+        }
+        CVBufferSetAttachment(target, kCVImageBufferPixelAspectRatioKey, carried, .shouldPropagate)
     }
 
     // MARK: When the GPU is done

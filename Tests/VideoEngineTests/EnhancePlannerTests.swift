@@ -207,9 +207,9 @@ struct EnhanceDecisionTests {
         #expect(EnhanceMath.decide(hot) == .unavailable(.highDynamicRange))
     }
 
-    @Test func croppedPicturesAndMissingGPUsAreUnavailable() {
+    @Test func refusedPicturesAndMissingGPUsAreUnavailable() {
         var cropped = SourcePicture(size: PixelSize(width: 1280, height: 720))
-        cropped.cropped = true
+        cropped.refusal = "its frames are not 8-bit 4:2:0"
         #expect(EnhanceMath.decide(context(EnhanceOptions(sharpen: 1), source: cropped)) == .unavailable(.unsupportedPicture))
         var noGPU = context(EnhanceOptions(sharpen: 1))
         noGPU.hasGPU = false

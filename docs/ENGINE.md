@@ -467,10 +467,13 @@ API (`PictureEnhancer` is `@MainActor`):
   - `displaySize: CGSize`: the pixels the picture covers on screen.
   - `state: EnhanceState` and `updates() -> AsyncStream<EnhanceState>` (the current state first): `.idle`,
     `.running(EnhancePlan)` (scaler, source and output size, sharpen, deband), `.paused(.powerSaving | .droppedFrames)`
-    and `.unavailable(.highDynamicRange | .noGPU | .unsupportedPicture)`.
+    and `.unavailable(.highDynamicRange | .noGPU | .unsupportedPicture)`. `unsupportedPicture` is only for a picture the
+    chain truly cannot draw (see the gates below); a crop, a turn, an odd size or a non-square pixel is drawn.
   - `attach(to: AVPlayerItem)`, `detach()` (call it before releasing the enhancer) and `setActive(_:)`.
   - `power`: reports the thermal state and Low Power Mode; the default reads the system's.
-- Diagnostics, through `EngineLogger` and kept for `EngineDiagnostics.report()`: `enhance-gpu`, `enhance-probe` (per
+- Diagnostics, through `EngineLogger` and kept for `EngineDiagnostics.report()`: `enhance-gpu`, `enhance-picture` (once
+  per change: `result=ok` with the coded size, the shown size, the crop when there is one, the turn and the pixel shape
+  when it is not square, or `result=unsupported` with the reason), `enhance-probe` (per
   scaler: `result=ready`, `failed` or `skipped`, milliseconds, output size, scale factor, the pixel formats it
   reports and the ones used in and out, model status, or the reason), `enhance-rungs` (once every scaler has an answer
   and again when it changes: one line saying for each rung `chosen`, `failed: ...`, `skipped: ...`, `demoted: ...` or
@@ -501,8 +504,8 @@ How it works:
 - The chain: NV12 frame to BGRA with the video's own matrix, the scaler, then one pass that debands, sharpens and
   dithers into the buffer the layer shows. Memory is bounded: pooled IOSurface buffers shared with Metal without a
   copy, at most two frames in flight, nothing large allocated per frame, output capped at 2560x1440.
-- Gates, in order. Nothing asked for, or no frame yet: idle. No GPU, HDR or Dolby Vision, or a picture that is
-  cropped, turned by the player or not 8-bit 4:2:0: unavailable, and the plain picture plays. Low Power Mode or
+- Gates, in order. Nothing asked for, or no frame yet: idle. No GPU, HDR or Dolby Vision, or a picture that cannot be
+  drawn (below): unavailable, and the plain picture plays. Low Power Mode or
   thermal `serious`: paused. About a quarter of recent frames missed: step down one scaler, then pause for 10, 20 and
   40 s, then stay off; a pause ends by itself. A source that is not at least 1.1x smaller than the display skips the
   scaler. The player's frames are taken only while the chain runs, and while it waits for the first frame to learn
@@ -529,9 +532,25 @@ downloads it with the user's knowledge.
 Pixel formats: the formats a VideoToolbox scaler takes are read from it at run time (`supportedPixelFormats` and the
 pixel buffer attributes of its configuration), never assumed. BGRA is used when it is offered, since the chain's own
 passes work in it. Otherwise 420v (two-plane 4:2:0, video range, which is also what the player's frames are) is used:
-the player's planes are copied into a buffer made to the scaler's requirements, the scaler writes 420v, and one GPU
-pass turns that into BGRA with the video's own matrix for the rest of the chain. A format the engine cannot convert on
-either side fails the scaler with the reason.
+the player's planes are cropped and turned upright into a buffer made to the scaler's requirements (two small GPU
+passes), the scaler writes 420v, and one GPU pass turns that into BGRA with the video's own matrix for the rest of
+the chain. A format the engine cannot convert on either side fails the scaler with the reason.
+
+Pictures of any size and shape: the player's frames come in the order the video was coded, so the first pass of the
+chain (the NV12 to BGRA pass, or the two plane passes for a 420v scaler) also cuts the picture to its clean aperture
+and turns it upright by the track's `preferredTransform` (read once when the item is attached; the chain waits for it,
+and the plain picture shows until then). Everything after that, the scalers, the size math and the output, sees the
+upright picture, so a phone clip shot upright and coded sideways (a 90 or 270 degree transform), a half turn, a mirror,
+a cropped 1088-row 1080p picture, a portrait 720x1280 or 1080x1920 clip, a 4:3 clip such as 1440x1080 and small
+amateur sizes such as 320x176, 426x240, 854x480, 960x544 and 1016x572 all take the same path. Sizes are made even
+(4:2:0 chroma, and scalers that want even sizes, need it): an odd last row or column is cut off and a crop's corner and
+size move to even numbers, so at most one pixel a side is lost and nothing is refused for being odd. A quarter turn
+inverts the pixel shape (the display buffer's pixel-aspect tag is turned with it), and the fit to the display uses the
+upright, even picture with its pixel shape. The matrix guess for an untagged picture looks at the longer and the
+shorter side, so a portrait clip gets the same matrix as its landscape twin. What is still refused, with the reason on
+the `enhance-picture` line: frames that are not 8-bit 4:2:0 (video range and full range are both drawn), a track transform that is not a
+quarter turn or a mirror (a scale or a skew), a turn the track does not explain (the player shows the frames turned and
+the track says upright), a frame smaller than 2x2, and HDR (its own reason).
 
 Measured on iPhone 17 Pro (A19 Pro, iOS 27.0.1), a 1280x720 picture on a 2556x1179 display, `.automatic`:
 
@@ -573,7 +592,8 @@ Looked at and not used:
 - `AVSampleBufferVideoRenderer.recommendedPixelBufferAttributes`: the engine's IOSurface BGRA buffers display
   directly; revisit if device logs show a copy.
 - NV12 fed straight from the player to a VideoToolbox scaler without a copy: the scaler wants buffers made to its own
-  attributes, so the player's planes are copied in (BGRA first when the scaler takes it, 420v only when it does not).
+  attributes, and the picture has to be cropped and turned anyway, so the player's planes are read by one GPU pass
+  into them (BGRA first when the scaler takes it, 420v only when it does not).
 - `AVSampleBufferVideoRenderer.Receiver` (iOS 27): the documentation does not say how to get one, so the engine uses
   the renderer's `enqueue` and `flush`, which iOS 27 still documents (marked deprecated). Switch when the gap closes.
 
@@ -695,10 +715,11 @@ while playing, then seek twice.
 |---|---|---|
 | E1 | 720p SDR on a 1179x2556 phone, `.automatic`, 2 minutes; then 1080p on the same screen | picture stays in step with the audio (within one frame); `enhance-probe` lines show each scaler's result and `enhance-plan` the one in use; the 1080p run skips the scaler |
 | E2 | Picture in Picture from the app's player layer while the enhancer runs; then with `ContentSource(sampleBufferDisplayLayer:)` | the window opens and keeps playing; coming back restores the enhanced picture with no frozen frame |
-| E3 | rotate the device; play a clip with a rotation transform | the enhancer's layer follows the player layer; the rotated clip is not shown sideways |
+| E3 | rotate the device; play a clip with a rotation transform | the enhancer's layer follows the player layer; the rotated clip is not shown sideways (see E10 for every orientation) |
 | E4 | 10 minutes at 60 fps with every stage on, then with the device warmed to `serious` and with Low Power Mode on | audio never breaks; `enhance-perf` shows late and skipped frames; heat or Low Power Mode pauses the chain within a second and the plain picture shows; it resumes when clear |
 | E5 | `.automatic` before and after the super-resolution model is downloaded | not downloaded: a lower scaler runs and `enhance-probe` says why; the engine never starts the download |
 | E6 | each device class: `enhance-probe` for `vt-super-resolution` and `vt-low-latency`, and the `enhance-rungs` line | `isSupported`, scale factors, pixel formats and start-up time recorded; a scaler that offers only factors above the budget is `skipped` with that reason; a scaler that takes BGRA gets BGRA, one that takes only 420v gets 420v in and out with correct colour and range, otherwise it is skipped with the reason. iPhone 17 Pro (measured): `vt-super-resolution` offers `[4]` and is skipped; `vt-low-latency` took 420v only (to re-run on the fixed build); `metalfx-spatial` 6.9 ms average, 15.2 ms at worst, no late frames |
 | E7 | HDR10 and Dolby Vision files with the chain on; pause, resume, seek, background | `unavailable(highDynamicRange)` and no change to the picture; the plain picture is back at once after a seek; the background stops GPU work with no error |
 | E8 | 30 minutes at 1080p scaled to 1440p, Instruments allocations | memory flat after the first minute; buffer counts stay within the pool limits; detach frees the pools |
 | E9 | on a device where `vt-low-latency` is ready, 2 minutes of 720p, then drag the sharpen slider over its range | `enhance-rungs` says `chosen=vt-low-latency` (or why not); `enhance-perf` GPU time compared with MetalFX; the picture's colours and range match the plain picture; dragging causes no new `enhance-probe` lines and no flicker |
+| E10 | a phone clip shot upright (90 or 270 degree transform), one shot upside down (180), a mirrored front-camera clip, a 1088-row clip with a 1080 clean aperture, an odd-sized clip (for example 853x481), and amateur sizes 320x176, 426x240, 854x480, 960x544, 1016x572, 1440x1080 and 720x1280, each with every stage on | every clip is enhanced (not `unavailable`), upright, not stretched, not mirrored, with the right crop; the `enhance-picture` line says coded, shown, crop, turn and pixel shape; the colours match the plain picture; with `vt-low-latency` chosen the rotated clip is also right (the 420v path); a clip with a skewed transform or 10-bit frames is `unavailable(unsupportedPicture)` with the reason on the `enhance-picture` line. To confirm on the device: that the player's frames really arrive in coded order with a transform set, and that a clean-aperture frame carries its aperture and is not already cropped |

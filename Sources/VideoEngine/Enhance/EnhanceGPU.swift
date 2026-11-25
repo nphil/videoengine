@@ -16,6 +16,35 @@ struct LineArtParameters {
     var strength: Float
 }
 
+/// The ingest and reorient kernels' geometry block, laid out as the shader declares it: where the shown picture is in
+/// the coded frame and how it is turned. See `PictureGeometry`.
+struct IngestGeometry: Equatable {
+    var cropX: Int32
+    var cropY: Int32
+    var swapAxes: Int32
+    var flipAcross: Int32
+    var flipDown: Int32
+
+    /// The whole frame, as it is.
+    static let identity = IngestGeometry(cropX: 0, cropY: 0, swapAxes: 0, flipAcross: 0, flipDown: 0)
+
+    init(cropX: Int32, cropY: Int32, swapAxes: Int32, flipAcross: Int32, flipDown: Int32) {
+        self.cropX = cropX
+        self.cropY = cropY
+        self.swapAxes = swapAxes
+        self.flipAcross = flipAcross
+        self.flipDown = flipDown
+    }
+
+    init(_ geometry: PictureGeometry) {
+        cropX = Int32(geometry.crop.x)
+        cropY = Int32(geometry.crop.y)
+        swapAxes = geometry.orientation.swapsAxes ? 1 : 0
+        flipAcross = geometry.orientation.flipsAcross ? 1 : 0
+        flipDown = geometry.orientation.flipsDown ? 1 : 0
+    }
+}
+
 /// The taps and the one intermediate texture of a Lanczos scale from one size to another.
 final class LanczosPlan: @unchecked Sendable {
     let source: PixelSize
@@ -52,6 +81,8 @@ final class EnhanceGPU: @unchecked Sendable {
     private let verticalKernel: any MTLComputePipelineState
     private let lineArtKernel: any MTLComputePipelineState
     private let composeKernel: any MTLComputePipelineState
+    private let reorientLumaKernel: any MTLComputePipelineState
+    private let reorientChromaKernel: any MTLComputePipelineState
 
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { throw EnhanceFailure("this device has no Metal GPU") }
@@ -80,6 +111,8 @@ final class EnhanceGPU: @unchecked Sendable {
         verticalKernel = try kernel("lanczos_vertical")
         lineArtKernel = try kernel("line_art_steepen")
         composeKernel = try kernel("compose")
+        reorientLumaKernel = try kernel("reorient_luma")
+        reorientChromaKernel = try kernel("reorient_chroma")
     }
 
     /// A private texture the GPU uses between passes.
@@ -107,30 +140,38 @@ final class EnhanceGPU: @unchecked Sendable {
         )
     }
 
-    /// Video-range or full-range NV12 into BGRA at the same size, using the video's own matrix.
+    /// Video-range or full-range NV12 into BGRA, using the video's own matrix. The output is the upright picture, so
+    /// its size is the crop's, with the sides swapped for a quarter turn; `geometry` says which window of the frame it is
+    /// and how it is turned.
     func ingest(
-        _ coefficients: IngestCoefficients, luma: any MTLTexture, chroma: any MTLTexture, output: any MTLTexture,
-        commands: any MTLCommandBuffer
+        _ coefficients: IngestCoefficients, geometry: IngestGeometry = .identity, luma: any MTLTexture, chroma: any MTLTexture,
+        output: any MTLTexture, commands: any MTLCommandBuffer
     ) throws {
         try dispatch(commands, ingestKernel, width: output.width, height: output.height) { encoder in
             encoder.setTexture(luma, index: 0)
             encoder.setTexture(chroma, index: 1)
             encoder.setTexture(output, index: 2)
             Self.bind(encoder, coefficients, index: 0)
+            Self.bind(encoder, geometry, index: 1)
         }
     }
 
-    /// Copies the two planes of one NV12 picture into another of the same size, as a scaler's own buffers need.
-    func copyPlanes(
-        luma: any MTLTexture, chroma: any MTLTexture, toLuma: any MTLTexture, toChroma: any MTLTexture, commands: any MTLCommandBuffer
+    /// Crops and turns one NV12 picture into another that stays NV12, which is what a scaler that takes only 420v reads.
+    /// The destination planes are the upright picture's size and even.
+    func reorient(
+        _ geometry: IngestGeometry, luma: any MTLTexture, chroma: any MTLTexture, toLuma: any MTLTexture, toChroma: any MTLTexture,
+        commands: any MTLCommandBuffer
     ) throws {
-        guard luma.width == toLuma.width, luma.height == toLuma.height, chroma.width == toChroma.width, chroma.height == toChroma.height else {
-            throw EnhanceFailure("the scaler's buffer is not the size of the player's frame")
+        try dispatch(commands, reorientLumaKernel, width: toLuma.width, height: toLuma.height) { encoder in
+            encoder.setTexture(luma, index: 0)
+            encoder.setTexture(toLuma, index: 1)
+            Self.bind(encoder, geometry, index: 0)
         }
-        guard let encoder = commands.makeBlitCommandEncoder() else { throw EnhanceFailure("Metal gave no blit encoder") }
-        encoder.copy(from: luma, to: toLuma)
-        encoder.copy(from: chroma, to: toChroma)
-        encoder.endEncoding()
+        try dispatch(commands, reorientChromaKernel, width: toChroma.width, height: toChroma.height) { encoder in
+            encoder.setTexture(chroma, index: 0)
+            encoder.setTexture(toChroma, index: 1)
+            Self.bind(encoder, geometry, index: 0)
+        }
     }
 
     /// Lanczos-3 across, then down.

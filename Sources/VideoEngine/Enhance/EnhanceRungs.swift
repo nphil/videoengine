@@ -17,6 +17,8 @@ struct PlayerPicture {
     var chroma: any MTLTexture
     var matrix: YCbCrMatrix
     var fullRange: Bool
+    /// The window of the frame that is shown and how it is turned: what makes the player's frame the upright picture.
+    var geometry: IngestGeometry = .identity
 
     var coefficients: IngestCoefficients { IngestCoefficients(matrix: matrix, fullRange: fullRange) }
 }
@@ -32,9 +34,12 @@ struct RungFrame {
     var time: CMTime
     var sequence: Int
 
-    /// Turns the player's NV12 frame into the BGRA picture the rung reads.
+    /// Turns the player's NV12 frame into the upright BGRA picture the rung reads, cropped and turned as it is shown.
     func ingestSource(into commands: any MTLCommandBuffer) throws {
-        try gpu.ingest(player.coefficients, luma: player.luma, chroma: player.chroma, output: source.texture, commands: commands)
+        try gpu.ingest(
+            player.coefficients, geometry: player.geometry, luma: player.luma, chroma: player.chroma, output: source.texture,
+            commands: commands
+        )
     }
 }
 
@@ -388,13 +393,14 @@ final class VideoToolboxRung: ScalerRung, @unchecked Sendable {
         case .bgra:
             try frame.ingestSource(into: commands)
         case .nv12VideoRange:
-            // The player's frames are 420v already (the output asks for it), so they only need to land in a buffer made to
-            // the scaler's own requirements.
+            // The player's frames are 420v already (the output asks for it), so they only need to land, cropped and turned
+            // upright, in a buffer made to the scaler's own requirements.
             guard !frame.player.fullRange, let chroma = frame.source.chroma else {
                 throw EnhanceFailure("the scaler takes 420v pictures and this frame is not video range")
             }
-            try frame.gpu.copyPlanes(
-                luma: frame.player.luma, chroma: frame.player.chroma, toLuma: frame.source.texture, toChroma: chroma, commands: commands
+            try frame.gpu.reorient(
+                frame.player.geometry, luma: frame.player.luma, chroma: frame.player.chroma, toLuma: frame.source.texture,
+                toChroma: chroma, commands: commands
             )
         }
         guard let sourceBuffer = frame.source.buffer, let scaledBuffer = frame.scaled.buffer,

@@ -112,7 +112,7 @@ struct PictureEnhancerTests {
         #expect(!facts.fullRange)
         #expect(facts.picture.size == PixelSize(width: 1920, height: 1080))
         #expect(facts.picture.range == .sdr)
-        #expect(!facts.picture.cropped)
+        #expect(facts.picture.refusal == nil)
     }
 
     @Test
@@ -137,16 +137,26 @@ struct PictureEnhancerTests {
         #expect(FrameFacts(buffer: full, presentationSize: .zero).fullRange)
 
         let bgra = try #require(makeBuffer(width: 1280, height: 720, format: kCVPixelFormatType_32BGRA))
-        #expect(FrameFacts(buffer: bgra, presentationSize: .zero).picture.cropped)
+        #expect(FrameFacts(buffer: bgra, presentationSize: .zero).picture.refusal == "its frames are not 8-bit 4:2:0")
 
-        // A clip the player turns on its side is not drawn right, an upright one is.
+        // A clip the player turns on its side is drawn upright when its track says so, and refused when it does not.
         let landscape = try #require(makeBuffer(width: 1920, height: 1080))
-        #expect(FrameFacts(buffer: landscape, presentationSize: CGSize(width: 1080, height: 1920)).picture.cropped)
-        #expect(!FrameFacts(buffer: landscape, presentationSize: CGSize(width: 1920, height: 1080)).picture.cropped)
+        let portraitShown = CGSize(width: 1080, height: 1920)
+        let quarterTurn = CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1080, ty: 0)
+        let turned = FrameFacts(buffer: landscape, presentationSize: portraitShown, track: TrackOrientation(transform: quarterTurn))
+        #expect(turned.picture.refusal == nil)
+        #expect(turned.picture.size == PixelSize(width: 1080, height: 1920))
+        #expect(turned.geometry?.orientation.swapsAxes == true)
+        #expect(FrameFacts(buffer: landscape, presentationSize: portraitShown).picture.refusal != nil)
+        #expect(FrameFacts(buffer: landscape, presentationSize: CGSize(width: 1920, height: 1080)).picture.refusal == nil)
+
+        // A transform that is a scale or a skew cannot be drawn.
+        let skewed = TrackOrientation(transform: CGAffineTransform(a: 1, b: 0, c: 0.5, d: 1, tx: 0, ty: 0))
+        #expect(FrameFacts(buffer: landscape, presentationSize: .zero, track: skewed).picture.refusal != nil)
     }
 
     @Test
-    func aCleanApertureSmallerThanTheBufferCountsAsCropped() throws {
+    func aCleanApertureSmallerThanTheBufferIsCroppedToItsEvenSize() throws {
         let buffer = try #require(makeBuffer(width: 1920, height: 1088))
         let aperture: [String: Any] = [
             kCVImageBufferCleanApertureWidthKey as String: 1920,
@@ -155,7 +165,32 @@ struct PictureEnhancerTests {
             kCVImageBufferCleanApertureVerticalOffsetKey as String: 0,
         ]
         tag(buffer, kCVImageBufferCleanApertureKey, aperture as CFDictionary)
-        #expect(FrameFacts(buffer: buffer, presentationSize: .zero).picture.cropped)
+        let facts = FrameFacts(buffer: buffer, presentationSize: .zero)
+        #expect(facts.picture.refusal == nil)
+        #expect(facts.picture.size == PixelSize(width: 1920, height: 1080))
+        #expect(facts.geometry?.crop.height == 1080)
+    }
+
+    @Test
+    func anOddSizedFrameLosesItsOddRowAndColumn() throws {
+        let buffer = try #require(makeBuffer(width: 853, height: 481))
+        let facts = FrameFacts(buffer: buffer, presentationSize: .zero)
+        #expect(facts.picture.refusal == nil)
+        #expect(facts.picture.size == PixelSize(width: 852, height: 480))
+    }
+
+    @Test
+    func aPortraitClipKeepsItsMatrixGuessAndInvertsItsPixelShape() throws {
+        let sideways = try #require(makeBuffer(width: 1280, height: 720))
+        let ratio: [String: Any] = [
+            kCVImageBufferPixelAspectRatioHorizontalSpacingKey as String: 4,
+            kCVImageBufferPixelAspectRatioVerticalSpacingKey as String: 3,
+        ]
+        tag(sideways, kCVImageBufferPixelAspectRatioKey, ratio as CFDictionary)
+        let quarterTurn = TrackOrientation.known(PictureOrientation(swapsAxes: true, flipsAcross: true, flipsDown: false))
+        let facts = FrameFacts(buffer: sideways, presentationSize: CGSize(width: 720 * 4.0 / 3.0, height: 1280), track: quarterTurn)
+        #expect(facts.matrix == .bt709)
+        #expect(abs(facts.picture.pixelAspect - 0.75) < 0.0001)
     }
 
     @Test
@@ -185,6 +220,7 @@ struct PictureEnhancerTests {
         let enhancer = PictureEnhancer(options: EnhanceOptions(upscaler: .automatic, sharpen: 0.5, deband: 0))
         enhancer.displaySize = CGSize(width: 2560, height: 1440)
         enhancer.attach(to: dummyItem())
+        enhancer.setTrackOrientation(.known(.upright))
         enhancer.handle(PulledFrame(readOnly: nil, buffer: buffer, time: .zero), tickTime: 0, deadline: 1)
         #expect(enhancer.state == .unavailable(.highDynamicRange))
         #expect(enhancer.statistics.offered == 0)
@@ -199,6 +235,7 @@ struct PictureEnhancerTests {
         let enhancer = PictureEnhancer(options: EnhanceOptions(upscaler: .automatic, sharpen: 0.5, deband: 0), power: { hot })
         enhancer.displaySize = CGSize(width: 2560, height: 1440)
         enhancer.attach(to: dummyItem())
+        enhancer.setTrackOrientation(.known(.upright))
         enhancer.handle(PulledFrame(readOnly: nil, buffer: buffer, time: .zero), tickTime: 0, deadline: 1)
         #expect(enhancer.state == .paused(.powerSaving))
         #expect(enhancer.statistics.offered == 0)
@@ -212,6 +249,7 @@ struct PictureEnhancerTests {
         let enhancer = PictureEnhancer(options: EnhanceOptions(upscaler: .lineArt, sharpen: 0.5, deband: 0.5), logger: logs.logger)
         enhancer.displaySize = CGSize(width: 1280, height: 720)
         enhancer.attach(to: dummyItem())
+        enhancer.setTrackOrientation(.known(.upright))
         // The scaler is set up while frames already flow, so wait for the scaled picture, then for three frames of it.
         var baseline: Int?
         try await pump(enhancer, frame: buffer) {
@@ -239,6 +277,7 @@ struct PictureEnhancerTests {
         let enhancer = PictureEnhancer(options: EnhanceOptions(upscaler: .off, sharpen: 0.5, deband: 0.5), logger: logs.logger)
         enhancer.displaySize = CGSize(width: 1280, height: 720)
         enhancer.attach(to: dummyItem())
+        enhancer.setTrackOrientation(.known(.upright))
         try await pump(enhancer, frame: buffer) { enhancer.statistics.shown >= 3 }
         let report = "\(enhancer.statistics) \(enhancer.state)\n\(logs.text)"
         #expect(enhancer.statistics.shown >= 3, Comment(rawValue: report))

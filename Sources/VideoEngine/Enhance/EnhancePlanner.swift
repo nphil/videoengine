@@ -19,12 +19,15 @@ enum PictureRange: Sendable, Equatable {
 
 /// What a frame says about the picture, as far as planning goes.
 struct SourcePicture: Sendable, Equatable {
+    /// The upright picture's size: what the chain works on, after the crop and the turn.
     var size: PixelSize
-    /// Width of one pixel over its height: 1 for square pixels.
+    /// Width of one pixel over its height, for the upright picture: 1 for square pixels.
     var pixelAspect = 1.0
     var range = PictureRange.sdr
-    /// The frame is a cropped window of its buffer, which the chain does not undo.
-    var cropped = false
+    /// Why the chain cannot draw this picture, in words for a log line; nil when it can. A crop, a turn, an odd size or a
+    /// non-square pixel are all handled, so this is for what truly cannot be: a pixel format that is not 8-bit 4:2:0,
+    /// a track transform that is not a turn, a frame smaller than 2x2.
+    var refusal: String?
 }
 
 enum EnhanceMath {
@@ -252,7 +255,7 @@ extension EnhanceMath {
         guard options.isEnabled, let source = context.source, !source.size.isEmpty else { return .idle }
         guard context.hasGPU else { return .unavailable(.noGPU) }
         if source.range == .hdr { return .unavailable(.highDynamicRange) }
-        if source.cropped { return .unavailable(.unsupportedPicture) }
+        if source.refusal != nil { return .unavailable(.unsupportedPicture) }
         if context.shedPower { return .paused(.powerSaving) }
         if context.overloaded { return .paused(.droppedFrames) }
         var scaler: RungChoice?
@@ -382,9 +385,10 @@ enum YCbCrMatrix: Sendable, Equatable {
         }
     }
 
-    /// What an untagged picture of this size is assumed to use: HD is BT.709, smaller is BT.601.
+    /// What an untagged picture of this size is assumed to use: HD is BT.709, smaller is BT.601. A picture shot upright on
+    /// a phone is coded on its side, so the longer and the shorter side are judged, not the width and the height.
     static func assumed(for size: PixelSize) -> YCbCrMatrix {
-        size.width >= 1280 || size.height >= 720 ? .bt709 : .bt601
+        max(size.width, size.height) >= 1280 || min(size.width, size.height) >= 720 ? .bt709 : .bt601
     }
 }
 

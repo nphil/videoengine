@@ -38,7 +38,9 @@ struct EnhanceShaderTests {
     @Test(.enabled(if: hasMetal(), needsMetal))
     func everyKernelCompiles() throws {
         let kit = try Kit()
-        for name in ["ingest_nv12", "lanczos_horizontal", "lanczos_vertical", "line_art_steepen", "compose"] {
+        for name in [
+            "ingest_nv12", "reorient_luma", "reorient_chroma", "lanczos_horizontal", "lanczos_vertical", "line_art_steepen", "compose",
+        ] {
             let pipeline = try kit.pipeline(name)
             #expect(pipeline.maxTotalThreadsPerThreadgroup > 0, "\(name)")
         }
@@ -62,6 +64,7 @@ struct EnhanceShaderTests {
             encoder.setTexture(chroma, index: 1)
             encoder.setTexture(output, index: 2)
             Kit.set(encoder, coefficients, index: 0)
+            Kit.set(encoder, IngestGeometry.identity, index: 1)
         }
         let expected = coefficients.rgb(y: 120.0 / 255.0, cb: 100.0 / 255.0, cr: 160.0 / 255.0)
         let wantedRed = eightBitLevel(expected.r)
@@ -74,6 +77,122 @@ struct EnhanceShaderTests {
             #expect(isNear(pixels[start + 1], wantedGreen, within: 2))
             #expect(isNear(pixels[start], wantedBlue, within: 2))
             #expect(pixels[start + 3] == 255)
+        }
+    }
+
+    /// A coded 12x8 frame whose every luma sample is different, and a 6x4 chroma plane whose every sample is different.
+    private static func patternedFrame() -> (luma: [UInt8], chroma: [UInt8]) {
+        var luma: [UInt8] = []
+        for y in 0..<8 {
+            for x in 0..<12 { luma.append(UInt8(10 + y * 12 + x)) }
+        }
+        var chroma: [UInt8] = []
+        for y in 0..<4 {
+            for x in 0..<6 {
+                chroma.append(UInt8(20 + x * 7 + y * 3))
+                chroma.append(UInt8(200 - x * 5 - y * 11))
+            }
+        }
+        return (luma, chroma)
+    }
+
+    /// Every way a frame can be turned: with or without the axis swap and each flip.
+    private static var everyOrientation: [PictureOrientation] {
+        var all: [PictureOrientation] = []
+        for swap in [false, true] {
+            for across in [false, true] {
+                for down in [false, true] { all.append(PictureOrientation(swapsAxes: swap, flipsAcross: across, flipsDown: down)) }
+            }
+        }
+        return all
+    }
+
+    @Test(.enabled(if: hasMetal(), needsMetal))
+    func reorientKernelsCropAndTurnLikeTheGeometry() throws {
+        let kit = try Kit()
+        let frame = Self.patternedFrame()
+        let luma = try kit.texture(.r8Unorm, 12, 8, bytes: frame.luma)
+        let chroma = try kit.texture(.rg8Unorm, 6, 4, bytes: frame.chroma)
+        let lumaPipeline = try kit.pipeline("reorient_luma")
+        let chromaPipeline = try kit.pipeline("reorient_chroma")
+        for orientation in Self.everyOrientation {
+            let geometry = try #require(PictureGeometry.make(
+                coded: PixelSize(width: 12, height: 8), clean: CGRect(x: 2, y: 2, width: 6, height: 4), pixelAspect: 1,
+                orientation: orientation
+            ))
+            let size = geometry.size
+            let outLuma = try kit.texture(.r8Unorm, size.width, size.height)
+            let outChroma = try kit.texture(.rg8Unorm, size.width / 2, size.height / 2)
+            let block = IngestGeometry(geometry)
+            try kit.run(lumaPipeline, width: size.width, height: size.height) { encoder in
+                encoder.setTexture(luma, index: 0)
+                encoder.setTexture(outLuma, index: 1)
+                Kit.set(encoder, block, index: 0)
+            }
+            try kit.run(chromaPipeline, width: size.width / 2, height: size.height / 2) { encoder in
+                encoder.setTexture(chroma, index: 0)
+                encoder.setTexture(outChroma, index: 1)
+                Kit.set(encoder, block, index: 0)
+            }
+            let lumaOut = kit.bytes(of: outLuma, bytesPerPixel: 1)
+            for y in 0..<size.height {
+                for x in 0..<size.width {
+                    let coded = geometry.codedPixel(x: x, y: y)
+                    #expect(lumaOut[y * size.width + x] == UInt8(10 + coded.y * 12 + coded.x), "\(orientation) luma \(x),\(y)")
+                }
+            }
+            let chromaOut = kit.bytes(of: outChroma, bytesPerPixel: 2)
+            for y in 0..<(size.height / 2) {
+                for x in 0..<(size.width / 2) {
+                    let coded = geometry.codedPixel(x: x * 2, y: y * 2)
+                    let sx = coded.x >> 1
+                    let sy = coded.y >> 1
+                    let start = (y * (size.width / 2) + x) * 2
+                    #expect(chromaOut[start] == UInt8(20 + sx * 7 + sy * 3), "\(orientation) cb \(x),\(y)")
+                    #expect(chromaOut[start + 1] == UInt8(200 - sx * 5 - sy * 11), "\(orientation) cr \(x),\(y)")
+                }
+            }
+        }
+    }
+
+    @Test(.enabled(if: hasMetal(), needsMetal))
+    func ingestCropsAndTurnsLikeTheGeometry() throws {
+        let kit = try Kit()
+        let frame = Self.patternedFrame()
+        let luma = try kit.texture(.r8Unorm, 12, 8, bytes: frame.luma)
+        var neutral: [UInt8] = []
+        for _ in 0..<24 {
+            neutral.append(128)
+            neutral.append(128)
+        }
+        let chroma = try kit.texture(.rg8Unorm, 6, 4, bytes: neutral)
+        let coefficients = IngestCoefficients(matrix: .bt709, fullRange: false)
+        let pipeline = try kit.pipeline("ingest_nv12")
+        for orientation in Self.everyOrientation {
+            let geometry = try #require(PictureGeometry.make(
+                coded: PixelSize(width: 12, height: 8), clean: CGRect(x: 2, y: 2, width: 6, height: 4), pixelAspect: 1,
+                orientation: orientation
+            ))
+            let size = geometry.size
+            let output = try kit.texture(.bgra8Unorm, size.width, size.height)
+            let block = IngestGeometry(geometry)
+            try kit.run(pipeline, width: size.width, height: size.height) { encoder in
+                encoder.setTexture(luma, index: 0)
+                encoder.setTexture(chroma, index: 1)
+                encoder.setTexture(output, index: 2)
+                Kit.set(encoder, coefficients, index: 0)
+                Kit.set(encoder, block, index: 1)
+            }
+            let pixels = kit.bytes(of: output, bytesPerPixel: 4)
+            for y in 0..<size.height {
+                for x in 0..<size.width {
+                    let coded = geometry.codedPixel(x: x, y: y)
+                    let sample = Float(10 + coded.y * 12 + coded.x) / 255
+                    let wanted = eightBitLevel(coefficients.rgb(y: sample, cb: 128.0 / 255.0, cr: 128.0 / 255.0).g)
+                    let start = (y * size.width + x) * 4
+                    #expect(isNear(pixels[start + 1], wanted, within: 2), "\(orientation) \(x),\(y)")
+                }
+            }
         }
     }
 
