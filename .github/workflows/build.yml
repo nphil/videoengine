@@ -41,7 +41,7 @@ jobs:
   build:
     runs-on: xcode-27
     env:
-      FFMPEG_VERSION: n9.0.2
+      FFMPEG_VERSION: n9.1
       MIN_IOS_VERSION: "26.0"
       USE_CCACHE: "1"
     steps:

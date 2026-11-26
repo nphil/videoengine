@@ -17,7 +17,7 @@
 # ===========================================================================
 set -euo pipefail
 
-FFMPEG_VERSION="${FFMPEG_VERSION:-n9.0.2}"
+FFMPEG_VERSION="${FFMPEG_VERSION:-n9.1}"
 MIN_IOS_VERSION="${MIN_IOS_VERSION:-26.0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
